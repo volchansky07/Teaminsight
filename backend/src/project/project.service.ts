@@ -1,4 +1,8 @@
-import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { AddMemberDto } from './dto/add-member.dto';
@@ -22,22 +26,12 @@ export class ProjectService {
         name: dto.name,
         description: dto.description,
         organizationId: user.organizationId,
+        ownerId: userId,
         members: {
           create: {
             userId,
             roleInProject: ProjectRole.OWNER,
           },
-        },
-      },
-      include: { members: true },
-    });
-  }
-
-  async getMyProjects(userId: string) {
-    return this.prisma.project.findMany({
-      where: {
-        members: {
-          some: { userId },
         },
       },
       include: {
@@ -46,10 +40,85 @@ export class ProjectService {
     });
   }
 
+  async getMyProjects(userId: string) {
+    return this.prisma.project.findMany({
+      where: {
+        isArchived: false,
+        members: {
+          some: { userId },
+        },
+      },
+      include: {
+        members: true,
+      },
+      orderBy: {
+        updatedAt: 'desc',
+      },
+    });
+  }
+
+  async getMyArchivedProjects(userId: string) {
+    const memberships = await this.prisma.projectMember.findMany({
+      where: {
+        userId,
+      },
+      select: {
+        projectId: true,
+      },
+    });
+
+    const projectIds = memberships.map((membership) => membership.projectId);
+
+    const projects = await this.prisma.project.findMany({
+      where: {
+        id: {
+          in: projectIds,
+        },
+        isArchived: true,
+      },
+      include: {
+        owner: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
+        _count: {
+          select: {
+            tasks: true,
+            members: true,
+          },
+        },
+        tasks: {
+          select: {
+            id: true,
+            status: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        archivedAt: 'desc',
+      },
+    });
+
+    return projects.map((project) => ({
+      ...project,
+      tasksCompletedCount: project.tasks.filter(
+        (task) => task.status.name === 'Done',
+      ).length,
+    }));
+  }
+
   async getById(projectId: string) {
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
       include: {
+        owner: true,
         members: {
           include: {
             user: true,
@@ -159,14 +228,131 @@ export class ProjectService {
     });
   }
 
+  async archiveProject(projectId: string, userId: string) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    const membership = await this.prisma.projectMember.findUnique({
+      where: {
+        projectId_userId: {
+          projectId,
+          userId,
+        },
+      },
+    });
+
+    if (!membership) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    if (
+      membership.roleInProject !== 'OWNER' &&
+      membership.roleInProject !== 'MANAGER'
+    ) {
+      throw new ForbiddenException('Only managers can archive projects');
+    }
+
+    if (project.isArchived) {
+      return project;
+    }
+
+    await this.prisma.task.updateMany({
+      where: {
+        projectId,
+        isArchived: false,
+      },
+      data: {
+        isArchived: true,
+        archivedAt: new Date(),
+        archiveReason: 'PROJECT_ARCHIVED',
+        archivedById: userId,
+      },
+    });
+
+    return this.prisma.project.update({
+      where: { id: projectId },
+      data: {
+        isArchived: true,
+        archivedAt: new Date(),
+        archiveReason: 'MANUAL',
+      },
+    });
+  }
+
+  async unarchiveProject(projectId: string, userId: string) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    const membership = await this.prisma.projectMember.findUnique({
+      where: {
+        projectId_userId: {
+          projectId,
+          userId,
+        },
+      },
+    });
+
+    if (!membership) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    if (
+      membership.roleInProject !== 'OWNER' &&
+      membership.roleInProject !== 'MANAGER'
+    ) {
+      throw new ForbiddenException('Only managers can restore projects');
+    }
+
+    if (!project.isArchived) {
+      return project;
+    }
+
+    await this.prisma.task.updateMany({
+      where: {
+        projectId,
+        isArchived: true,
+        archiveReason: 'PROJECT_ARCHIVED',
+      },
+      data: {
+        isArchived: false,
+        archivedAt: null,
+        archiveReason: null,
+        archivedById: null,
+      },
+    });
+
+    return this.prisma.project.update({
+      where: { id: projectId },
+      data: {
+        isArchived: false,
+        archivedAt: null,
+        archiveReason: null,
+      },
+    });
+  }
+
   async getDashboard(projectId: string) {
     const totalTasks = await this.prisma.task.count({
-      where: { projectId },
+      where: {
+        projectId,
+        isArchived: false,
+      },
     });
 
     const completedTasks = await this.prisma.task.count({
       where: {
         projectId,
+        isArchived: false,
         completedAt: { not: null },
       },
     });
@@ -191,6 +377,9 @@ export class ProjectService {
           },
         },
         tasks: {
+          where: {
+            isArchived: false,
+          },
           include: {
             status: true,
             priority: true,

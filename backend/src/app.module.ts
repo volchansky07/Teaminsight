@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { ProjectModule } from './project/project.module';
 import { TaskModule } from './task/task.module';
 import { TaskReportModule } from './task-report/task-report.module';
+import { NotificationModule } from './notification/notification.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { TaskReportModule } from './task-report/task-report.module';
     ProjectModule,
     TaskModule,
     TaskReportModule,
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

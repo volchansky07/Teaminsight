@@ -44,7 +44,7 @@ export default function LoginPage() {
             <p className="text-neutral-500 text-sm uppercase tracking-[0.2em] mb-3">
               TeamInsight
             </p>
-            <h1 className="text-4xl font-bold tracking-tight">С возвращением</h1>
+            <h1 className="text-4xl font-bold tracking-tight">С возвращением!</h1>
             <p className="text-neutral-400 mt-3">
               Войдите, чтобы управлять проектами, задачами и аналитикой.
             </p>
@@ -91,11 +91,6 @@ export default function LoginPage() {
               {loading ? 'Вход...' : 'Войти'}
             </button>
           </form>
-
-          <div className="mt-8 pt-6 border-t border-neutral-800 text-sm text-neutral-500">
-            Демо-доступ:{' '}
-            <span className="text-neutral-300">admin@test.com</span>
-          </div>
         </div>
       </div>
     </div>

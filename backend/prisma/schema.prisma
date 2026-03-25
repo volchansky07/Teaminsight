@@ -4,9 +4,8 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url = env("DATABASE_URL")
+  url      = env("DATABASE_URL")
 }
-
 
 enum ProjectStatus {
   PLANNED
@@ -20,6 +19,12 @@ enum ProjectRole {
   OWNER
   MANAGER
   MEMBER
+}
+
+enum ProjectArchiveReason {
+  COMPLETED
+  EMPTY
+  MANUAL
 }
 
 enum KPIMetricName {
@@ -43,6 +48,25 @@ enum TaskReportStatus {
   REJECTED
 }
 
+enum TaskArchiveReason {
+  HIDDEN
+  COMPLETED
+  PROJECT_ARCHIVED
+}
+
+enum NotificationType {
+  REPORT_SUBMITTED
+  REPORT_APPROVED
+  REPORT_REJECTED
+  REPORT_ASSIGNED
+}
+
+enum NotificationEntityType {
+  TASK
+  REPORT
+  PROJECT
+}
+
 model Organization {
   id        String   @id @default(uuid())
   name      String
@@ -60,7 +84,7 @@ model Team {
   organizationId String
   name           String
   createdAt      DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
+  updatedAt      DateTime @default(now()) @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -69,67 +93,69 @@ model Team {
 }
 
 model Role {
-  id          String @id @default(uuid())
-  name        String @unique
+  id          String  @id @default(uuid())
+  name        String  @unique
   description String?
 
   users User[]
 }
 
 model User {
-  id               String   @id @default(uuid())
-  organizationId   String
-  roleId           String
-  fullName         String
-  email            String   @unique
-  passwordHash     String
-  isActive         Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
+  id             String   @id @default(uuid())
+  fullName       String
+  email          String   @unique
+  passwordHash   String
+  organizationId String
+  roleId         String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   refreshTokenHash String?
   refreshTokenExp  DateTime?
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  role         Role         @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  organization Organization @relation(fields: [organizationId], references: [id])
+  role         Role         @relation(fields: [roleId], references: [id])
 
-  projectMemberships ProjectMember[]
-  managedProjects     Project[] @relation("ProjectManager")
-  assignedTasks       Task[]    @relation("TaskAssignee")
-  timeLogs            TimeLog[]
-  employeeKpis        EmployeeKPI[]
-  auditLogs           AuditLog[]
+  managedProjects Project[] @relation("ProjectOwner")
+  assignedTasks   Task[]    @relation("TaskAssignee")
+  archivedTasks   Task[]    @relation("TaskArchivedBy")
+  timeLogs        TimeLog[]
 
-  taskReportsAuthored TaskReport[] @relation("TaskReportAuthor")
-  taskReportsReviewed TaskReport[] @relation("TaskReportReviewer")
+  authoredTaskReports TaskReport[]    @relation("TaskReportAuthor")
+  reviewedTaskReports TaskReport[]    @relation("TaskReportReviewer")
+  ProjectMember       ProjectMember[]
+  EmployeeKPI         EmployeeKPI[]
+  AuditLog            AuditLog[]
 
-  @@index([organizationId])
-  @@index([roleId])
+  notifications Notification[]
 }
 
 model Project {
-  id             String        @id @default(uuid())
+  id             String   @id @default(uuid())
   organizationId String
+  ownerId        String?
   name           String
   description    String?
-  startDate      DateTime?
-  endDate        DateTime?
-  status         ProjectStatus @default(PLANNED)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  managerId String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
+  isArchived    Boolean               @default(false)
+  archivedAt    DateTime?
+  archiveReason ProjectArchiveReason?
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  manager      User?        @relation("ProjectManager", fields: [managerId], references: [id], onDelete: Restrict)
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner         User?           @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  members       ProjectMember[]
+  tasks         Task[]
+  EmployeeKPI   EmployeeKPI[]
+  ProjectMetric ProjectMetric[]
 
-  members      ProjectMember[]
-  tasks        Task[]
-  metrics      ProjectMetric[]
-  employeeKpis EmployeeKPI[]
+  notifications Notification[]
 
   @@index([organizationId])
-  @@index([managerId])
+  @@index([ownerId])
+  @@index([isArchived])
 }
 
 model ProjectMember {
@@ -137,7 +163,7 @@ model ProjectMember {
   projectId     String
   userId        String
   roleInProject ProjectRole @default(MEMBER)
-  updatedAt DateTime @default(now()) @updatedAt
+  updatedAt     DateTime    @default(now()) @updatedAt
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -172,19 +198,24 @@ model TaskComplexity {
 }
 
 model Task {
-  id            String   @id @default(uuid())
-  projectId     String
-  statusId      String
-  priorityId    String
-  complexityId  String
-  assigneeId    String?
-  title         String
-  description   String?
-  dueDate       DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
-  completedAt   DateTime?
-  qualityScore  Int?
+  id           String    @id @default(uuid())
+  projectId    String
+  statusId     String
+  priorityId   String
+  complexityId String
+  assigneeId   String?
+  title        String
+  description  String?
+  dueDate      DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @default(now()) @updatedAt
+  completedAt  DateTime?
+  qualityScore Int?
+
+  isArchived    Boolean            @default(false)
+  archivedAt    DateTime?
+  archiveReason TaskArchiveReason?
+  archivedById  String?
 
   project    Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   status     TaskStatus     @relation(fields: [statusId], references: [id])
@@ -192,16 +223,19 @@ model Task {
   complexity TaskComplexity @relation(fields: [complexityId], references: [id])
   assignee   User?          @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
 
-  requiresReport Boolean @default(false)
+  archivedBy User? @relation("TaskArchivedBy", fields: [archivedById], references: [id], onDelete: SetNull)
+
+  requiresReport Boolean         @default(false)
   reportType     TaskReportType?
   reports        TaskReport[]
-
-  timeLogs TimeLog[]
+  timeLogs       TimeLog[]
 
   @@index([projectId])
   @@index([assigneeId])
   @@index([statusId])
   @@index([priorityId])
+  @@index([isArchived])
+  @@index([archivedById])
 }
 
 model TaskReport {
@@ -230,6 +264,26 @@ model TaskReport {
   @@index([reviewedById])
 }
 
+model Notification {
+  id         String                  @id @default(uuid())
+  userId     String
+  title      String
+  message    String
+  type       NotificationType
+  isRead     Boolean                 @default(false)
+  entityType NotificationEntityType?
+  entityId   String?
+  projectId  String?
+  createdAt  DateTime                @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([userId, isRead, createdAt])
+  @@index([projectId])
+  @@map("notifications")
+}
+
 model TimeLog {
   id         String   @id @default(uuid())
   taskId     String
@@ -237,7 +291,7 @@ model TimeLog {
   hoursSpent Float
   logDate    DateTime
   createdAt  DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
+  updatedAt  DateTime @default(now()) @updatedAt
 
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -253,9 +307,9 @@ model KPIConfiguration {
   name           String
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
+  updatedAt      DateTime @default(now()) @updatedAt
 
-  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization  Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   metricWeights KPIMetricWeight[]
 
   @@index([organizationId])

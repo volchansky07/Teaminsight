@@ -10,12 +10,22 @@ import InlineNotice from '@/components/InlineNotice';
 import ProjectTeamSection from '@/components/ProjectTeamSection';
 import EditTaskModal from '@/components/EditTaskModal';
 import TaskReportsPanel from '@/components/TaskReportsPanel';
+import { useRouter } from 'next/navigation';
+import TaskReportSubmitModal from '@/components/TaskReportSubmitModal';
+import ConfirmActionModal from '@/components/ConfirmActionModal';
+import TaskReportReviewModal from '@/components/TaskReportReviewModal';
+import TaskReportModal from '@/components/TaskReportModal';
+
 
 interface Task {
   id: string;
   title: string;
   description?: string | null;
   dueDate?: string | null;
+  completedAt?: string | null;
+  isArchived?: boolean;
+  archivedAt?: string | null;
+  archiveReason?: 'MANUAL' | 'AUTO' | null;
   requiresReport?: boolean;
   reportType?: 'TEXT' | 'LINK' | 'FILE' | 'IMAGE' | null;
   latestReportStatus?: 'SUBMITTED' | 'APPROVED' | 'REJECTED' | null;
@@ -143,7 +153,8 @@ export default function DashboardPage() {
   const [organizationUsers, setOrganizationUsers] = useState<
     OrganizationUserItem[]
   >([]);
-  const [reports, setReports] = useState<TaskReportItem[]>([]);
+  const [reports, setReports] = useState<any[]>([]);
+
   const [loading, setLoading] = useState(true);
 
   const [authToken, setAuthToken] = useState('');
@@ -173,11 +184,24 @@ export default function DashboardPage() {
   const [selectedMemberId, setSelectedMemberId] = useState('');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('');
 
+  const router = useRouter();
+
+  const [reviewModalTask, setReviewModalTask] = useState<any | null>(null);
+  const [reviewModalReport, setReviewModalReport] = useState<any | null>(null);
+
+  const [reportModalTask, setReportModalTask] = useState<any | null>(null);
+
+  const handleOpenReportModal = (task: any) => {
+    setReportModalTask(task);
+  };
 
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [deletingTask, setDeletingTask] = useState<Task | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [archivingTask, setArchivingTask] = useState<Task | null>(null);
+  const [archiving, setArchiving] = useState(false);
+
+  const [hideTaskModalTask, setHideTaskModalTask] = useState<Task | null>(null);
+  const [hideTaskLoading, setHideTaskLoading] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('token') || '';
@@ -245,6 +269,18 @@ export default function DashboardPage() {
 
       loadedReports = reportsResponses.flatMap((res) => res.data ?? []);
     }
+
+    if (loadedTasks.length > 0) {
+      const reportResponses = await Promise.all(
+        loadedTasks.map((task: any) =>
+          api.get(`/task-reports/task/${task.id}`).catch(() => ({ data: [] })),
+        ),
+      );
+
+      loadedReports = reportResponses.flatMap((res) => res.data ?? []);
+    }
+
+    setReports(loadedReports);
 
     const enrichedTasks = loadedTasks.map((task: Task) => {
       const taskReports = loadedReports
@@ -379,7 +415,7 @@ export default function DashboardPage() {
     setReports([]);
     setNotice(null);
     setEditingTask(null);
-    setDeletingTask(null);
+    setArchivingTask(null);
   };
 
   const resetFilters = () => {
@@ -387,6 +423,31 @@ export default function DashboardPage() {
     setSelectedMemberId('');
     setSelectedStatusFilter('');
   };
+
+  const latestReportsByTaskId = useMemo(() => {
+    const map: Record<string, any> = {};
+
+    reports.forEach((report: any) => {
+      const taskId = report.task?.id || report.taskId;
+      if (!taskId) return;
+
+      const existing = map[taskId];
+
+      if (!existing) {
+        map[taskId] = report;
+        return;
+      }
+
+      const existingDate = new Date(existing.createdAt).getTime();
+      const currentDate = new Date(report.createdAt).getTime();
+
+      if (currentDate > existingDate) {
+        map[taskId] = report;
+      }
+    });
+
+    return map;
+  }, [reports]);
 
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -526,31 +587,91 @@ export default function DashboardPage() {
     }
   };
 
-  const handleDeleteTask = async (taskId: string) => {
-    setNotice(null);
+  const handleStartTask = async (taskId: string) => {
+  setNotice(null);
 
-    try {
-      setDeleting(true);
+  try {
+    await api.patch(`/tasks/${taskId}/start`);
+    await loadData();
 
-      await api.delete(`/tasks/${taskId}`);
+    setNotice({
+      type: 'success',
+      message: 'Задача переведена в статус «В работе».',
+    });
+  } catch (error: any) {
+    const serverMessage = error?.response?.data?.message;
 
-      await loadData();
+    setNotice({
+      type: 'error',
+      message:
+        typeof serverMessage === 'string'
+          ? serverMessage
+          : 'Не удалось взять задачу в работу.',
+    });
+  }
+};
 
-      setNotice({
-        type: 'success',
-        message: 'Задача успешно удалена.',
-      });
-    } catch (error) {
-      console.error('Ошибка удаления задачи:', error);
-      setNotice({
-        type: 'error',
-        message: 'Не удалось удалить задачу.',
-      });
-    } finally {
-      setDeleting(false);
-      setDeletingTask(null);
-    }
+  const handleArchiveTask = async (taskId: string) => {
+  setNotice(null);
+
+  try {
+    setArchiving(true);
+
+    await api.patch(`/tasks/${taskId}/archive`);
+
+    await loadData();
+
+    setNotice({
+      type: 'success',
+      message: 'Задача отправлена в архив.',
+    });
+  } catch (error) {
+    console.error('Ошибка архивации задачи:', error);
+    setNotice({
+      type: 'error',
+      message: 'Не удалось архивировать задачу.',
+    });
+  } finally {
+    setArchiving(false);
+    setArchivingTask(null);
+  }
+};
+  
+  const handleDeleteTaskDirect = (task: Task) => {
+    setHideTaskModalTask(task);
   };
+
+  const confirmHideTask = async () => {
+      if (!hideTaskModalTask) return;
+
+  try {
+    setHideTaskLoading(true);
+
+    await api.patch(`/tasks/${hideTaskModalTask.id}/archive`);
+    await loadData();
+
+    setNotice({
+      type: 'success',
+      message: 'Задача скрыта и перемещена в архив.',
+    });
+
+    setHideTaskModalTask(null);
+  } catch (error: any) {
+    console.error('Ошибка скрытия задачи:', error);
+
+    const serverMessage = error?.response?.data?.message;
+
+    setNotice({
+      type: 'error',
+      message:
+        typeof serverMessage === 'string'
+          ? serverMessage
+          : 'Не удалось скрыть задачу.',
+    });
+  } finally {
+    setHideTaskLoading(false);
+  }
+};
 
   const handleStatusChange = async (taskId: string, newStatusId: string) => {
   setNotice(null);
@@ -642,41 +763,73 @@ export default function DashboardPage() {
     await loadData();
   };
 
-  const handleSubmitReport = async (payload: {
+  const handleSubmitReport = async ({
+    taskId,
+    reportType,
+    content,
+    file,
+  }: {
     taskId: string;
     reportType: 'TEXT' | 'LINK' | 'FILE' | 'IMAGE';
-    content: string;
+    content?: string;
+    file?: File | null;
   }) => {
     setNotice(null);
 
     try {
-      if (payload.reportType === 'FILE' || payload.reportType === 'IMAGE') {
-        const formData = new FormData();
-        formData.append('taskId', payload.taskId);
-        formData.append('reportType', payload.reportType);
+      if (reportType === 'FILE' || reportType === 'IMAGE') {
+        if (!file) {
+          throw new Error(
+            reportType === 'IMAGE'
+              ? 'Не выбрано изображение для отправки.'
+              : 'Не выбран файл для отправки.',
+          );
+        }
 
-        // payload.content здесь содержит dataUrl только в старой версии,
-        // но теперь лучше хранить выбранный file отдельно.
-        // Поэтому эта функция будет использоваться только для TEXT/LINK,
-        // а FILE/IMAGE будем отправлять прямо из TaskReportsPanel через FormData.
-        throw new Error('File upload must be handled via multipart form data');
+        const formData = new FormData();
+        formData.append('taskId', taskId);
+        formData.append('reportType', reportType);
+        formData.append('file', file);
+
+        await api.post('/task-reports/upload', formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        });
+      } else {
+        await api.post('/task-reports', {
+          taskId,
+          reportType,
+          content: content?.trim() || '',
+        });
       }
 
-      await api.post('/task-reports', payload);
       await loadData();
+      setReportModalTask(null);
 
       setNotice({
         type: 'success',
-        message: 'Отчёт отправлен на проверку.',
+        message: 'Отчёт успешно отправлен на проверку.',
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Ошибка отправки отчёта:', error);
+
+      const serverMessage = error?.response?.data?.message;
+
       setNotice({
         type: 'error',
-        message: 'Не удалось отправить отчёт.',
+        message:
+          typeof serverMessage === 'string'
+            ? serverMessage
+            : 'Не удалось отправить отчёт.',
       });
+
       throw error;
     }
+  };
+
+  const handleOpenReportsPage = () => {
+    router.push(`/projects/${projectId}/reports`);
   };
 
   const handleSubmitFileReport = async (formData: FormData) => {
@@ -703,6 +856,7 @@ export default function DashboardPage() {
     });
     throw error;
   }
+
   };
 
   const handleApproveReport = async (
@@ -751,6 +905,26 @@ export default function DashboardPage() {
       });
       throw error;
     }
+  };
+
+  const handleOpenReviewModal = (task: any) => {
+    const latestReport = latestReportsByTaskId?.[task.id] ?? null;
+
+    if (!latestReport) {
+      setNotice({
+        type: 'error',
+        message: 'Для этой задачи отчёт пока недоступен.',
+      });
+      return;
+    }
+
+    setReviewModalTask(task);
+    setReviewModalReport(latestReport);
+  };
+
+  const handleCloseReviewModal = () => {
+    setReviewModalTask(null);
+    setReviewModalReport(null);
   };
 
   const visibleTasks = useMemo(() => {
@@ -818,13 +992,15 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <AppHeader projectId={projectId} />
+      <AppHeader projectId={projectId} 
+      projectRole={currentProjectRole}
+      />
 
       <main className="max-w-[1600px] mx-auto px-8 py-10 space-y-8">
         <div className="flex items-end justify-between gap-4">
           <div>
             <p className="text-neutral-500 text-sm uppercase tracking-[0.2em] mb-3">
-              {isMemberView ? 'МОЙ ПРОЕКТ' : 'Рабочее пространство проекта'}
+              {isMemberView ? 'МОИ ПРОЕКТЫ' : 'Рабочее пространство проекта'}
             </p>
 
             <h1 className="text-5xl font-bold tracking-tight">
@@ -834,7 +1010,7 @@ export default function DashboardPage() {
             <p className="text-neutral-400 mt-3 text-lg max-w-3xl">
               {project?.description?.trim()
                 ? project.description
-                : 'Отслеживайте задачи, статусы и общий прогресс выполнения проекта.'}
+                : 'Назначайте задачи, отслеживайте статусы и общий прогресс выполнения проекта.'}
             </p>
 
             {isMemberView && (
@@ -1026,7 +1202,7 @@ export default function DashboardPage() {
                     className="w-full bg-neutral-800 border border-neutral-700 rounded-2xl px-4 py-3 outline-none focus:border-white"
                   >
                     <option value="">Выберите формат отчёта</option>
-                    <option value="TEXT">Текстовый отчёт</option>
+                    <option value="TEXT">Текстовый</option>
                     <option value="LINK">Ссылка</option>
                     <option value="FILE">Файл</option>
                     <option value="IMAGE">Изображение</option>
@@ -1061,7 +1237,7 @@ export default function DashboardPage() {
 
         {isManagerView ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <MetricCard title="Всего задач" value={dashboard?.totalTasks ?? 0} />
+            <MetricCard title="Назначено задач" value={dashboard?.totalTasks ?? 0} />
             <MetricCard
               title="Выполнено"
               value={dashboard?.completedTasks ?? 0}
@@ -1083,28 +1259,9 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {isManagerView && (
-          <ProjectTeamSection
-            members={members}
-            organizationUsers={organizationUsers}
-            onAddMember={handleAddMember}
-            onRemoveMember={handleRemoveMember}
-          />
-        )}
+       
 
-        {isManagerView && <ContributionLeaderboard items={contributions} />}
-
-        <TaskReportsPanel
-          tasks={tasks}
-          reports={reports}
-          isManagerView={isManagerView}
-          isMemberView={isMemberView}
-          currentUserId={currentUserId}
-          onSubmitReport={handleSubmitReport}
-          onSubmitFileReport={handleSubmitFileReport}
-          onApproveReport={handleApproveReport}
-          onRejectReport={handleRejectReport}
-        />
+        
 
         <section className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 md:p-8 space-y-5">
           <div>
@@ -1206,7 +1363,13 @@ export default function DashboardPage() {
             statuses={statuses}
             onStatusChange={handleStatusChange}
             onEditTask={isManagerView ? setEditingTask : undefined}
-            onDeleteTask={isManagerView ? setDeletingTask : undefined}
+            onArchiveTask={isManagerView ? setArchivingTask : undefined}
+            onStartTask={handleStartTask}
+            isMemberView={isMemberView}
+            onOpenReportsPage={handleOpenReportsPage}
+            currentUserId={currentUserId}
+            onOpenReviewModal={handleOpenReviewModal}
+            onDeleteTask={isManagerView ? handleDeleteTaskDirect : undefined}
           />
           <KanbanColumn
             title="В работе"
@@ -1214,7 +1377,13 @@ export default function DashboardPage() {
             statuses={statuses}
             onStatusChange={handleStatusChange}
             onEditTask={isManagerView ? setEditingTask : undefined}
-            onDeleteTask={isManagerView ? setDeletingTask : undefined}
+            onDeleteTask={isManagerView ? handleDeleteTaskDirect : undefined}
+            isMemberView={isMemberView}
+            currentUserId={currentUserId}
+            onOpenReportsPage={handleOpenReportsPage}
+            onOpenReportModal={handleOpenReportModal}
+            onOpenReviewModal={handleOpenReviewModal}
+            onArchiveTask={handleArchiveTask}
           />
           <KanbanColumn
             title="Выполнено"
@@ -1222,43 +1391,48 @@ export default function DashboardPage() {
             statuses={statuses}
             onStatusChange={handleStatusChange}
             onEditTask={isManagerView ? setEditingTask : undefined}
-            onDeleteTask={isManagerView ? setDeletingTask : undefined}
+            onArchiveTask={isManagerView ? setArchivingTask : undefined}
+            isMemberView={isMemberView}
+            onOpenReportsPage={handleOpenReportsPage}
+            currentUserId={currentUserId}
+            onOpenReviewModal={handleOpenReviewModal}
+            onDeleteTask={isManagerView ? handleDeleteTaskDirect : undefined}
           />
         </div>
       </main>
 
-      {deletingTask && (
+      {archivingTask && (
         <div className="fixed inset-0 z-[95] bg-black/70 backdrop-blur-sm flex items-center justify-center px-4">
           <div className="w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-3xl shadow-2xl p-6 space-y-5">
             <div>
               <p className="text-neutral-500 text-sm uppercase tracking-[0.2em] mb-3">
-                УДАЛЕНИЕ ЗАДАЧИ
+                АРХИВАЦИЯ ЗАДАЧИ
               </p>
               <h2 className="text-2xl font-bold tracking-tight">
-                Удалить задачу?
+                Архивировать задачу?
               </h2>
               <p className="text-neutral-400 mt-3">
-                Вы собираетесь удалить задачу{' '}
+                Вы собираетесь архивировать задачу{' '}
                 <span className="text-white font-medium">
-                  «{deletingTask.title}»
+                  «{archivingTask.title}»
                 </span>
-                . Это действие нельзя отменить.
+                . После этого она переместится в архив. 
               </p>
             </div>
 
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => handleDeleteTask(deletingTask.id)}
-                disabled={deleting}
+                onClick={() => handleArchiveTask(archivingTask.id)}
+                disabled={archiving}
                 className="bg-red-600 text-white px-5 py-3 rounded-2xl font-medium hover:bg-red-500 transition disabled:opacity-60"
               >
-                {deleting ? 'Удаление...' : 'Удалить'}
+                {archiving ? 'Архивация...' : 'Архивировать'}
               </button>
 
               <button
                 type="button"
-                onClick={() => setDeletingTask(null)}
+                onClick={() => setArchivingTask(null)}
                 className="bg-neutral-800 text-white px-5 py-3 rounded-2xl font-medium hover:bg-neutral-700 transition"
               >
                 Отмена
@@ -1277,6 +1451,45 @@ export default function DashboardPage() {
         members={members}
         onClose={() => setEditingTask(null)}
         onSave={handleUpdateTask}
+      />
+
+      <TaskReportSubmitModal
+        isOpen={!!reviewModalTask}
+        task={reviewModalTask}
+        reportType={reviewModalTask?.requiresReport ? reviewModalTask.reportType : undefined}
+        onClose={handleCloseReviewModal}
+        onApprove={handleApproveReport}
+        onReject={handleRejectReport}
+      />
+
+      <ConfirmActionModal
+        isOpen={!!hideTaskModalTask}
+        title="Скрыть задачу"
+        description={
+          hideTaskModalTask
+            ? `Задача «${hideTaskModalTask.title}» будет убрана из активной доски и перемещена в архив.`
+            : ''
+          }
+          confirmText="Скрыть"
+          confirmVariant="danger"
+          loading={hideTaskLoading}
+          onClose={() => setHideTaskModalTask(null)}
+          onConfirm={confirmHideTask}
+      />
+
+      <TaskReportReviewModal
+        isOpen={!!reviewModalTask && !!reviewModalReport}
+        task={reviewModalTask}
+        report={reviewModalReport}
+        onClose={handleCloseReviewModal}
+        onApprove={handleApproveReport}
+        onReject={handleRejectReport}
+      />
+      <TaskReportModal
+        isOpen={!!reportModalTask}
+        task={reportModalTask}
+        onClose={() => setReportModalTask(null)}
+        onSubmit={handleSubmitReport}
       />
     </div>
   );

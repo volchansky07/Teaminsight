@@ -2,69 +2,116 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { useMemo } from 'react';
 
-interface Props {
+interface AppHeaderProps {
   projectId?: string;
+  projectRole?: 'OWNER' | 'MANAGER' | 'MEMBER' | null;
+  systemRole?: string;
 }
 
-export default function AppHeader({ projectId }: Props) {
-  const router = useRouter();
+export default function AppHeader({
+  projectId,
+  projectRole,
+  systemRole,
+}: AppHeaderProps) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const isInsideProject = useMemo(() => {
+    return !!projectId || /^\/projects\/[^/]+/.test(pathname);
+  }, [projectId, pathname]);
+
+  const canSeeMembers = useMemo(() => {
+    return true;
+  }, []);
+
+  const navItems = useMemo(() => {
+    if (!isInsideProject || !projectId) {
+      return [
+        {
+          label: 'Проекты',
+          href: '/projects',
+          active: pathname === '/projects',
+        },
+      ];
+    }
+
+    return [
+      {
+        label: 'Проекты',
+        href: '/projects',
+        active: pathname === '/projects',
+      },
+      {
+        label: 'Панель проекта',
+        href: `/projects/${projectId}/dashboard`,
+        active: pathname === `/projects/${projectId}/dashboard`,
+      },
+      {
+        label: 'Аналитика',
+        href: `/projects/${projectId}/analytics`,
+        active: pathname === `/projects/${projectId}/analytics`,
+      },
+      {
+        label: 'Отчёты',
+        href: `/projects/${projectId}/reports`,
+        active: pathname === `/projects/${projectId}/reports`,
+      },
+      ...(canSeeMembers
+        ? [
+            {
+              label: 'Участники',
+              href: `/projects/${projectId}/members`,
+              active: pathname === `/projects/${projectId}/members`,
+            },
+          ]
+        : []),
+      {
+        label: 'Архив',
+        href: `/projects/${projectId}/archive`,
+        active: pathname === `/projects/${projectId}/archive`,
+      },
+    ];
+  }, [isInsideProject, projectId, pathname, canSeeMembers]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
     router.push('/login');
   };
 
-  const isProjectsActive = pathname === '/projects';
-  const isDashboardActive =
-    !!projectId && pathname === `/projects/${projectId}/dashboard`;
-
   return (
-    <header className="sticky top-0 z-50 border-b border-neutral-800 bg-black/80 backdrop-blur-xl">
-      <div className="max-w-[1600px] mx-auto px-8 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-10">
-          <Link href="/projects" className="group">
-            <div className="flex flex-col">
-              <span className="text-2xl font-bold tracking-tight group-hover:text-white transition">
-                TeamInsight
-              </span>
-              <span className="text-xs uppercase tracking-[0.25em] text-neutral-500">
-                PROJECT ANALYTICS
-              </span>
-            </div>
-          </Link>
+    <header className="border-b border-white/10 bg-black">
+      <div className="mx-auto flex max-w-[1600px] items-center justify-between px-8 py-6">
+        <Link href="/projects" className="shrink-0">
+          <div className="text-[28px] font-bold tracking-tight text-white">
+            TeamInsight
+          </div>
+          <div className="mt-1 text-[12px] uppercase tracking-[0.35em] text-white/35">
+            Project Analytics
+          </div>
+        </Link>
 
-          <nav className="flex items-center gap-2">
+        <nav className="flex items-center gap-6">
+          {navItems.map((item) => (
             <Link
-              href="/projects"
-              className={`px-4 py-2 rounded-2xl text-sm font-medium transition ${
-                isProjectsActive
+              key={item.href}
+              href={item.href}
+              className={[
+                'rounded-full px-8 py-4 text-[18px] transition',
+                item.active
                   ? 'bg-white text-black'
-                  : 'text-neutral-300 hover:text-white hover:bg-neutral-900'
-              }`}
+                  : 'text-white/70 hover:text-white',
+              ].join(' ')}
             >
-              Проекты
+              {item.label}
             </Link>
-
-            {projectId && (
-              <Link
-                href={`/projects/${projectId}/dashboard`}
-                className={`px-4 py-2 rounded-2xl text-sm font-medium transition ${
-                  isDashboardActive
-                    ? 'bg-white text-black'
-                    : 'text-neutral-300 hover:text-white hover:bg-neutral-900'
-                }`}
-              >
-                Панель проекта
-              </Link>
-            )}
-          </nav>
-        </div>
+          ))}
+        </nav>
 
         <button
           onClick={handleLogout}
-          className="bg-neutral-900 border border-neutral-800 text-white px-4 py-2 rounded-2xl font-medium hover:bg-neutral-800 transition"
+          className="rounded-2xl border border-white/10 bg-[#121212] px-8 py-4 text-[18px] text-white transition hover:bg-[#1a1a1a]"
         >
           Выйти
         </button>

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import api from '@/services/api';
 import AppHeader from '@/components/AppHeader';
 import InlineNotice from '@/components/InlineNotice';
+import ConfirmActionModal from '@/components/ConfirmActionModal';
 
 interface Project {
   id: string;
@@ -15,6 +16,75 @@ interface Project {
 interface NoticeState {
   type: 'success' | 'error';
   message: string;
+}
+
+function ProjectCard({
+  project,
+  isAdmin,
+  onArchive,
+}: {
+  project: Project;
+  isAdmin: boolean;
+  onArchive: (project: Project) => void;
+}) {
+  return (
+    <div className="group relative overflow-hidden rounded-[32px] border border-white/10 bg-[#141414] p-7 transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-[#171717] hover:shadow-[0_20px_70px_rgba(0,0,0,0.55)]">
+      <div className="pointer-events-none absolute inset-0 opacity-0 transition duration-300 group-hover:opacity-100">
+        <div className="absolute -inset-[1px] rounded-[32px] bg-gradient-to-r from-sky-500/10 via-violet-500/10 to-emerald-500/10 blur-xl" />
+      </div>
+
+      <div className="relative z-10 flex h-full min-h-[250px] flex-col justify-between">
+        <Link
+          href={`/projects/${project.id}/dashboard`}
+          className="block"
+          aria-label={`Открыть проект ${project.name}`}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h2 className="break-words text-3xl font-semibold tracking-tight text-white">
+                {project.name}
+              </h2>
+
+              <p className="mt-5 text-lg leading-relaxed text-white/50">
+                {project.description?.trim()
+                  ? project.description
+                  : 'Описание проекта отсутствует.'}
+              </p>
+            </div>
+
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-2xl text-white/60 transition-all duration-300 group-hover:translate-x-1 group-hover:border-white/20 group-hover:bg-white/10 group-hover:text-white">
+              →
+            </div>
+          </div>
+        </Link>
+
+        <div className="mt-8 flex items-end justify-between gap-4">
+          <div>
+            <div className="text-sm uppercase tracking-[0.18em] text-white/28">
+              Рабочее пространство
+            </div>
+            <div className="mt-2 text-base text-white/65 transition group-hover:text-white/80">
+              Нажмите на карточку, чтобы перейти в панель проекта
+            </div>
+          </div>
+
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onArchive(project);
+              }}
+              className="shrink-0 rounded-[18px] border border-amber-900/50 bg-amber-950/20 px-4 py-2.5 text-sm font-medium text-amber-300 transition hover:bg-amber-900/25 hover:text-amber-200"
+            >
+              Архивировать
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function ProjectsPage() {
@@ -28,6 +98,9 @@ export default function ProjectsPage() {
 
   const [currentSystemRole, setCurrentSystemRole] = useState('');
   const [authToken, setAuthToken] = useState('');
+
+  const [archiveProject, setArchiveProject] = useState<Project | null>(null);
+  const [archiveLoading, setArchiveLoading] = useState(false);
 
   const isAdmin = useMemo(
     () => currentSystemRole === 'admin',
@@ -151,16 +224,49 @@ export default function ProjectsPage() {
     }
   };
 
+  const handleArchiveProject = async () => {
+    if (!archiveProject) return;
+
+    try {
+      setArchiveLoading(true);
+      setNotice(null);
+
+      await api.patch(`/projects/${archiveProject.id}/archive`);
+
+      setProjects((prev) => prev.filter((p) => p.id !== archiveProject.id));
+      setArchiveProject(null);
+
+      setNotice({
+        type: 'success',
+        message: 'Проект успешно архивирован.',
+      });
+    } catch (error) {
+      console.error('Ошибка архивации проекта:', error);
+      setNotice({
+        type: 'error',
+        message: 'Не удалось архивировать проект.',
+      });
+    } finally {
+      setArchiveLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-black text-white">
       <AppHeader />
 
-      <main className="max-w-[1600px] mx-auto px-8 py-10 space-y-8">
-        <div className="flex items-end justify-between gap-4">
+      <main className="mx-auto max-w-[1600px] px-8 py-10">
+        <section className="mb-8 flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <h1 className="text-5xl font-bold tracking-tight">Мои проекты</h1>
-            <p className="text-neutral-400 mt-3 text-lg">
-              Управляйте проектами и переходите к их аналитике.
+            <p className="mb-3 text-sm uppercase tracking-[0.2em] text-white/35">
+              РАБОЧЕЕ ПРОСТРАНСТВО
+            </p>
+            <h1 className="text-6xl font-semibold leading-[0.95] text-white">
+              Мои проекты
+            </h1>
+            <p className="mt-4 max-w-[760px] text-xl leading-relaxed text-white/55">
+              Управляйте проектами, переходите в рабочие панели и контролируйте
+              проектную деятельность внутри платформы.
             </p>
           </div>
 
@@ -171,121 +277,118 @@ export default function ProjectsPage() {
                 setShowForm((prev) => !prev);
                 setNotice(null);
               }}
-              className="bg-white text-black px-5 py-3 rounded-2xl font-medium hover:bg-neutral-200 transition"
+              className="rounded-[20px] bg-white px-6 py-4 text-base font-medium text-black transition hover:bg-neutral-200"
             >
-              {showForm ? 'Закрыть' : '+ Создать проект'}
+              {showForm ? 'Закрыть форму' : '+ Создать проект'}
             </button>
           )}
-        </div>
+        </section>
 
         {notice && <InlineNotice type={notice.type} message={notice.message} />}
 
         {isAdmin && showForm && (
-          <form
-            onSubmit={createProject}
-            className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 md:p-8 space-y-5"
-          >
+          <section className="mb-8 rounded-[32px] border border-white/10 bg-[#141414] p-7 shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
             <div>
-              <h2 className="text-2xl font-semibold">Создание проекта</h2>
-              <p className="text-neutral-400 mt-2 text-sm">
-                Добавьте новый проект и начните управлять задачами команды.
+              <h2 className="text-3xl font-semibold text-white">
+                Создание проекта
+              </h2>
+              <p className="mt-3 text-white/55">
+                Добавьте новый проект и подготовьте рабочую среду для команды.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-5">
-              <div>
-                <label className="block text-sm text-neutral-400 mb-2">
-                  Название проекта
-                </label>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Введите название проекта"
-                  className="w-full bg-neutral-800 border border-neutral-700 rounded-2xl px-4 py-3 outline-none focus:border-white"
-                />
+            <form onSubmit={createProject} className="mt-6 space-y-5">
+              <div className="grid grid-cols-1 gap-5">
+                <div>
+                  <label className="mb-2 block text-sm text-white/60">
+                    Название проекта
+                  </label>
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Введите название проекта"
+                    className="w-full rounded-[20px] border border-white/10 bg-[#1a1a1a] px-5 py-4 text-white outline-none transition placeholder:text-white/25 focus:border-white/20"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm text-white/60">
+                    Описание проекта
+                  </label>
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Кратко опишите цель и содержание проекта"
+                    rows={4}
+                    className="w-full resize-none rounded-[20px] border border-white/10 bg-[#1a1a1a] px-5 py-4 text-white outline-none transition placeholder:text-white/25 focus:border-white/20"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-sm text-neutral-400 mb-2">
-                  Описание
-                </label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Описание проекта"
-                  rows={4}
-                  className="w-full bg-neutral-800 border border-neutral-700 rounded-2xl px-4 py-3 outline-none focus:border-white resize-none"
-                />
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={creating}
+                  className="rounded-[18px] bg-white px-5 py-3 font-medium text-black transition hover:bg-neutral-200 disabled:opacity-60"
+                >
+                  {creating ? 'Создание...' : 'Создать проект'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetForm();
+                    setShowForm(false);
+                    setNotice(null);
+                  }}
+                  className="rounded-[18px] border border-white/10 bg-white/5 px-5 py-3 font-medium text-white transition hover:bg-white/10"
+                >
+                  Отмена
+                </button>
               </div>
-            </div>
-
-            <div className="flex items-center gap-3 pt-2">
-              <button
-                type="submit"
-                disabled={creating}
-                className="bg-white text-black px-5 py-3 rounded-2xl font-medium hover:bg-neutral-200 transition disabled:opacity-60"
-              >
-                {creating ? 'Создание...' : 'Создать проект'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  resetForm();
-                  setShowForm(false);
-                  setNotice(null);
-                }}
-                className="bg-neutral-800 text-white px-5 py-3 rounded-2xl font-medium hover:bg-neutral-700 transition"
-              >
-                Отмена
-              </button>
-            </div>
-          </form>
+            </form>
+          </section>
         )}
 
         {projects.length === 0 ? (
-          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-10 text-center">
-            <h2 className="text-2xl font-semibold">Проектов пока нет</h2>
-            <p className="text-neutral-400 mt-3">
+          <section className="rounded-[32px] border border-white/10 bg-[#141414] p-12 text-center shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
+            <h2 className="text-3xl font-semibold text-white">
+              Проектов пока нет
+            </h2>
+            <p className="mt-4 text-lg leading-relaxed text-white/55">
               {isAdmin
-                ? 'Создайте первый проект, чтобы начать управлять задачами и аналитикой.'
-                : 'Вас пока не добавили ни в один проект.'}
+                ? 'Создайте первый проект, чтобы начать управление задачами, аналитикой и командной работой.'
+                : 'Вас пока не добавили ни в один проект. После назначения проект появится здесь автоматически.'}
             </p>
-          </div>
+          </section>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          <section className="grid grid-cols-1 gap-6 md:grid-cols-2 2xl:grid-cols-3">
             {projects.map((project) => (
-              <Link
+              <ProjectCard
                 key={project.id}
-                href={`/projects/${project.id}/dashboard`}
-                className="group bg-neutral-900 border border-neutral-800 rounded-3xl p-6 hover:border-neutral-600 transition"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-2xl font-semibold">{project.name}</h2>
-                    <p className="text-neutral-400 mt-3 text-sm">
-                      {project.description?.trim()
-                        ? project.description
-                        : 'Откройте панель проекта, чтобы управлять задачами и отслеживать прогресс.'}
-                    </p>
-                  </div>
-
-                  <div className="text-neutral-500 group-hover:text-white transition text-xl">
-                    →
-                  </div>
-                </div>
-
-                <div className="mt-8 flex items-center justify-between text-sm text-neutral-500">
-                  <span>Рабочее пространство</span>
-                  <span className="group-hover:text-white transition">
-                    Открыть панель
-                  </span>
-                </div>
-              </Link>
+                project={project}
+                isAdmin={isAdmin}
+                onArchive={setArchiveProject}
+              />
             ))}
-          </div>
+          </section>
         )}
       </main>
+
+      <ConfirmActionModal
+        isOpen={!!archiveProject}
+        title="Архивировать проект"
+        description={
+          archiveProject
+            ? `Проект «${archiveProject.name}» будет перенесён в архив. Все задачи проекта также будут архивированы.`
+            : ''
+        }
+        confirmText="Архивировать"
+        confirmVariant="danger"
+        loading={archiveLoading}
+        onClose={() => setArchiveProject(null)}
+        onConfirm={handleArchiveProject}
+      />
     </div>
   );
 }

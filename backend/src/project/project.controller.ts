@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Patch,
   Param,
   Post,
   Req,
@@ -59,5 +60,20 @@ export class ProjectController {
   @Get(':id')
   getById(@Param('id') id: string) {
     return this.projectService.getById(id);
+  }
+
+  @Get('archive/my')
+  getMyArchivedProjects(@Req() req) {
+    return this.projectService.getMyArchivedProjects(req.user.sub);
+  }
+
+  @Patch(':id/archive')
+  archiveProject(@Param('id') id: string, @Req() req) {
+    return this.projectService.archiveProject(id, req.user.sub);
+  }
+
+  @Patch(':id/unarchive')
+  unarchiveProject(@Param('id') id: string, @Req() req) {
+    return this.projectService.unarchiveProject(id, req.user.sub);
   }
 }
