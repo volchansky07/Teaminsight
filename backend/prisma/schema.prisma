@@ -58,7 +58,14 @@ enum NotificationType {
   REPORT_SUBMITTED
   REPORT_APPROVED
   REPORT_REJECTED
-  REPORT_ASSIGNED
+  TASK_ASSIGNED
+  TASK_STARTED
+  TASK_UPDATED
+  TASK_DEADLINE_SOON
+  TASK_OVERDUE
+  PROJECT_ASSIGNED
+  TASK_RESTORED
+  PROJECT_ARCHIVED
 }
 
 enum NotificationEntityType {
@@ -212,6 +219,9 @@ model Task {
   completedAt  DateTime?
   qualityScore Int?
 
+  deadlineNotifiedDays Int[]   @default([])
+  overdueNotified      Boolean @default(false)
+
   isArchived    Boolean            @default(false)
   archivedAt    DateTime?
   archiveReason TaskArchiveReason?
@@ -274,6 +284,8 @@ model Notification {
   entityType NotificationEntityType?
   entityId   String?
   projectId  String?
+  actionUrl  String?
+  meta       Json?
   createdAt  DateTime                @default(now())
 
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)

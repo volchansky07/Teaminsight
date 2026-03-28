@@ -50,6 +50,7 @@ interface Props {
   latestReportsByTaskId?: Record<string, any>;
   onOpenReviewModal?: (task: Task) => void;
   onArchiveTask?: (task: Task) => void;
+  onStartTask?: (taskId: string) => void;
 }
 
 function getColumnStyles(title: string) {
@@ -290,6 +291,7 @@ export default function KanbanColumn({
   onOpenReportsPage,
   onOpenReviewModal,
   onArchiveTask,
+  onStartTask,
 }: Props) {
   const styles = getColumnStyles(title);
   const inProgressStatusId = getInProgressStatusId(statuses);
@@ -464,10 +466,7 @@ export default function KanbanColumn({
                     ) ? (
                       <div className="mt-4">
                         <button
-                          onClick={() => {
-                            if (!inProgressStatusId) return;
-                            onStatusChange(task.id, inProgressStatusId);
-                          }}
+                          onClick={() => onStartTask?.(task.id)}
                           className="w-full rounded-xl border border-amber-900/50 bg-amber-950/40 px-4 py-2.5 text-sm font-medium text-amber-300 transition hover:bg-amber-900/40"
                         >
                           Взять в работу

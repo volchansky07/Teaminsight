@@ -6,11 +6,168 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
-import { TaskArchiveReason } from '@prisma/client';
+import {
+  TaskArchiveReason,
+  NotificationEntityType,
+  NotificationType,
+  ProjectRole,
+} from '@prisma/client';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class TaskService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
+
+  private async notifyTaskAssigned(params: {
+    assigneeId: string;
+    taskId: string;
+    taskTitle: string;
+    projectId: string;
+    projectName: string;
+  }) {
+    await this.notificationService.createNotification({
+      userId: params.assigneeId,
+      title: 'Вам назначена новая задача',
+      message: `Вам назначена новая задача «${params.taskTitle}» по проекту «${params.projectName}».`,
+      type: NotificationType.TASK_ASSIGNED,
+      entityType: NotificationEntityType.TASK,
+      entityId: params.taskId,
+      projectId: params.projectId,
+      actionUrl: `/projects/${params.projectId}/dashboard`,
+      meta: {
+        taskId: params.taskId,
+        taskTitle: params.taskTitle,
+        projectName: params.projectName,
+      },
+    });
+  }
+
+  private async notifyTaskUpdated(params: {
+    assigneeId: string;
+    taskId: string;
+    taskTitle: string;
+    projectId: string;
+    projectName: string;
+    managerFullName: string;
+  }) {
+    await this.notificationService.createNotification({
+      userId: params.assigneeId,
+      title: 'Задача обновлена',
+      message: `Менеджер/руководитель ${params.managerFullName} внёс правки в задачу «${params.taskTitle}» по проекту «${params.projectName}». Просмотрите обновлённую задачу.`,
+      type: NotificationType.TASK_UPDATED,
+      entityType: NotificationEntityType.TASK,
+      entityId: params.taskId,
+      projectId: params.projectId,
+      actionUrl: `/projects/${params.projectId}/dashboard`,
+      meta: {
+        taskId: params.taskId,
+        taskTitle: params.taskTitle,
+        projectName: params.projectName,
+        managerFullName: params.managerFullName,
+      },
+    });
+  }
+
+  private hasImportantTaskChanges(
+    oldTask: {
+      title?: string | null;
+      description?: string | null;
+      dueDate?: Date | null;
+      priorityId?: string | null;
+      complexityId?: string | null;
+      reportType?: string | null;
+      requiresReport?: boolean | null;
+    },
+    updateData: {
+      title?: string;
+      description?: string | null;
+      dueDate?: Date | null;
+      priorityId?: string;
+      complexityId?: string;
+      reportType?: string | null;
+      requiresReport?: boolean;
+    },
+  ) {
+    const dueDateChanged =
+      typeof updateData.dueDate !== 'undefined' &&
+      (oldTask.dueDate?.getTime?.() ?? null) !==
+        (updateData.dueDate?.getTime?.() ?? null);
+
+    return (
+      (typeof updateData.title !== 'undefined' &&
+        updateData.title !== oldTask.title) ||
+      (typeof updateData.description !== 'undefined' &&
+        updateData.description !== oldTask.description) ||
+      dueDateChanged ||
+      (typeof updateData.priorityId !== 'undefined' &&
+        updateData.priorityId !== oldTask.priorityId) ||
+      (typeof updateData.complexityId !== 'undefined' &&
+        updateData.complexityId !== oldTask.complexityId) ||
+      (typeof updateData.reportType !== 'undefined' &&
+        updateData.reportType !== oldTask.reportType) ||
+      (typeof updateData.requiresReport !== 'undefined' &&
+        updateData.requiresReport !== oldTask.requiresReport)
+    );
+  }
+
+  private async notifyManagersTaskStarted(params: {
+    projectId: string;
+    taskId: string;
+    taskTitle: string;
+    projectName: string;
+    employeeId: string;
+    employeeFullName: string;
+  }) {
+    console.log('notifyManagersTaskStarted called with:', params);
+
+    const managers = await this.prisma.projectMember.findMany({
+      where: {
+        projectId: params.projectId,
+        roleInProject: {
+          in: [ProjectRole.OWNER, ProjectRole.MANAGER],
+        },
+        userId: {
+          not: params.employeeId,
+        },
+      },
+      select: {
+        userId: true,
+        roleInProject: true,
+      },
+    });
+
+    console.log('notifyManagersTaskStarted managers:', managers);
+
+    if (!managers.length) {
+      console.log('No managers found for TASK_STARTED notification');
+      return;
+    }
+
+    const result = await this.notificationService.createManyNotifications(
+      managers.map((manager) => ({
+        userId: manager.userId,
+        title: 'Задача взята в работу',
+        message: `Сотрудник ${params.employeeFullName} взял в работу задачу «${params.taskTitle}» по проекту «${params.projectName}».`,
+        type: NotificationType.TASK_STARTED,
+        entityType: NotificationEntityType.TASK,
+        entityId: params.taskId,
+        projectId: params.projectId,
+        actionUrl: `/projects/${params.projectId}/dashboard`,
+        meta: {
+          taskId: params.taskId,
+          taskTitle: params.taskTitle,
+          employeeId: params.employeeId,
+          employeeFullName: params.employeeFullName,
+          projectName: params.projectName,
+        },
+      })),
+    );
+
+    console.log('TASK_STARTED notifications created:', result);
+  }
 
   async createTask(userId: string, dto: CreateTaskDto) {
     const membership = await this.prisma.projectMember.findUnique({
@@ -39,7 +196,7 @@ export class TaskService {
       );
     }
 
-    return this.prisma.task.create({
+    const createdTask = await this.prisma.task.create({
       data: {
         projectId: dto.projectId,
         statusId: dto.statusId,
@@ -48,7 +205,7 @@ export class TaskService {
         assigneeId: dto.assigneeId,
         title: dto.title,
         description: dto.description,
-        dueDate: new Date(dto.dueDate),
+        dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
         requiresReport: dto.requiresReport,
         reportType: dto.requiresReport ? dto.reportType : null,
       },
@@ -57,8 +214,26 @@ export class TaskService {
         priority: true,
         complexity: true,
         assignee: true,
+        project: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
     });
+
+    if (createdTask.assigneeId && createdTask.project) {
+      await this.notifyTaskAssigned({
+        assigneeId: createdTask.assigneeId,
+        taskId: createdTask.id,
+        taskTitle: createdTask.title,
+        projectId: createdTask.projectId,
+        projectName: createdTask.project.name,
+      });
+    }
+
+    return createdTask;
   }
 
   private async archiveExpiredCompletedTasks(projectId: string) {
@@ -179,19 +354,34 @@ export class TaskService {
   }
 
   async updateTask(taskId: string, userId: string, dto: UpdateTaskDto) {
-    const task = await this.prisma.task.findUnique({
+    const existingTask = await this.prisma.task.findUnique({
       where: { id: taskId },
-      include: { project: true, status: true },
+      include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        status: true,
+        assignee: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
+      },
     });
 
-    if (!task) {
+    if (!existingTask) {
       throw new NotFoundException('Task not found');
     }
 
     const membership = await this.prisma.projectMember.findUnique({
       where: {
         projectId_userId: {
-          projectId: task.projectId,
+          projectId: existingTask.projectId,
           userId,
         },
       },
@@ -201,11 +391,14 @@ export class TaskService {
       throw new ForbiddenException('Access denied');
     }
 
-    if (task.isArchived) {
+    if (existingTask.isArchived) {
       throw new ForbiddenException('Archived task cannot be edited');
     }
 
-    if (membership.roleInProject === 'MEMBER' && task.assigneeId !== userId) {
+    if (
+      membership.roleInProject === 'MEMBER' &&
+      existingTask.assigneeId !== userId
+    ) {
       throw new ForbiddenException(
         'Members can update only their assigned tasks',
       );
@@ -215,7 +408,11 @@ export class TaskService {
       throw new ForbiddenException('Members cannot reassign tasks');
     }
 
-    if (dto.requiresReport === true && !dto.reportType && !task.reportType) {
+    if (
+      dto.requiresReport === true &&
+      !dto.reportType &&
+      !existingTask.reportType
+    ) {
       throw new ForbiddenException(
         'Report type is required when report is enabled',
       );
@@ -233,10 +430,10 @@ export class TaskService {
       }
 
       if (newStatus.name === 'Done') {
-        if (task.requiresReport || dto.requiresReport === true) {
+        if (existingTask.requiresReport || dto.requiresReport === true) {
           const approvedReport = await this.prisma.taskReport.findFirst({
             where: {
-              taskId: task.id,
+              taskId: existingTask.id,
               status: 'APPROVED',
             },
             orderBy: {
@@ -251,7 +448,7 @@ export class TaskService {
           }
         }
 
-        completedAtValue = task.completedAt ?? new Date();
+        completedAtValue = existingTask.completedAt ?? new Date();
       } else {
         completedAtValue = null;
       }
@@ -260,29 +457,110 @@ export class TaskService {
     const resolvedRequiresReport =
       dto.requiresReport !== undefined
         ? dto.requiresReport
-        : task.requiresReport;
+        : existingTask.requiresReport;
 
-    return this.prisma.task.update({
+    const updateData = {
+      ...dto,
+      dueDate:
+        dto.dueDate !== undefined
+          ? dto.dueDate
+            ? new Date(dto.dueDate)
+            : null
+          : undefined,
+      completedAt: completedAtValue,
+      requiresReport: resolvedRequiresReport,
+      reportType:
+        resolvedRequiresReport === false
+          ? null
+          : dto.reportType !== undefined
+            ? dto.reportType
+            : undefined,
+    };
+
+    const updatedTask = await this.prisma.task.update({
       where: { id: taskId },
-      data: {
-        ...dto,
-        dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
-        completedAt: completedAtValue,
-        requiresReport: resolvedRequiresReport,
-        reportType:
-          resolvedRequiresReport === false
-            ? null
-            : dto.reportType !== undefined
-              ? dto.reportType
-              : undefined,
-      },
+      data: updateData,
       include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         status: true,
         priority: true,
         complexity: true,
-        assignee: true,
+        assignee: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
       },
     });
+
+    const manager = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        fullName: true,
+      },
+    });
+
+    if (
+      updatedTask.assigneeId &&
+      updatedTask.assigneeId !== existingTask.assigneeId &&
+      updatedTask.project
+    ) {
+      await this.notifyTaskAssigned({
+        assigneeId: updatedTask.assigneeId,
+        taskId: updatedTask.id,
+        taskTitle: updatedTask.title,
+        projectId: updatedTask.projectId,
+        projectName: updatedTask.project.name,
+      });
+    }
+
+    const importantChanges = this.hasImportantTaskChanges(existingTask, {
+      title: typeof dto.title !== 'undefined' ? dto.title : undefined,
+      description:
+        typeof dto.description !== 'undefined' ? dto.description : undefined,
+      dueDate:
+        typeof dto.dueDate !== 'undefined'
+          ? dto.dueDate
+            ? new Date(dto.dueDate)
+            : null
+          : undefined,
+      priorityId:
+        typeof dto.priorityId !== 'undefined' ? dto.priorityId : undefined,
+      complexityId:
+        typeof dto.complexityId !== 'undefined' ? dto.complexityId : undefined,
+      reportType:
+        typeof dto.reportType !== 'undefined' ? dto.reportType : undefined,
+      requiresReport:
+        typeof dto.requiresReport !== 'undefined'
+          ? dto.requiresReport
+          : undefined,
+    });
+
+    if (
+      importantChanges &&
+      updatedTask.assigneeId &&
+      manager &&
+      updatedTask.project
+    ) {
+      await this.notifyTaskUpdated({
+        assigneeId: updatedTask.assigneeId,
+        taskId: updatedTask.id,
+        taskTitle: updatedTask.title,
+        projectId: updatedTask.projectId,
+        projectName: updatedTask.project.name,
+        managerFullName: manager.fullName,
+      });
+    }
+
+    return updatedTask;
   }
 
   async startTask(taskId: string, userId: string) {
@@ -290,6 +568,12 @@ export class TaskService {
       where: { id: taskId },
       include: {
         status: true,
+        project: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
     });
 
@@ -330,18 +614,67 @@ export class TaskService {
       throw new NotFoundException('In Progress status not found');
     }
 
-    return this.prisma.task.update({
+    const updatedTask = await this.prisma.task.update({
       where: { id: taskId },
       data: {
         statusId: inProgressStatus.id,
       },
       include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         status: true,
         priority: true,
         complexity: true,
-        assignee: true,
+        assignee: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
       },
     });
+
+    const employee = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        fullName: true,
+      },
+    });
+
+    console.log('START TASK DEBUG -> updatedTask:', {
+      id: updatedTask.id,
+      title: updatedTask.title,
+      projectId: updatedTask.projectId,
+      assigneeId: updatedTask.assigneeId,
+      statusName: updatedTask.status?.name,
+      projectName: updatedTask.project?.name,
+    });
+
+    console.log('START TASK DEBUG -> employee:', employee);
+
+    if (
+      employee &&
+      updatedTask.project &&
+      updatedTask.assigneeId === userId &&
+      updatedTask.status.name === 'In Progress'
+    ) {
+      await this.notifyManagersTaskStarted({
+        projectId: updatedTask.projectId,
+        taskId: updatedTask.id,
+        taskTitle: updatedTask.title,
+        projectName: updatedTask.project.name,
+        employeeId: employee.id,
+        employeeFullName: employee.fullName,
+      });
+    }
+
+    return updatedTask;
   }
 
   async archiveTask(taskId: string, userId: string) {

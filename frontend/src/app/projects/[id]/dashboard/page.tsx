@@ -587,26 +587,18 @@ export default function DashboardPage() {
     }
   };
 
-  const handleStartTask = async (taskId: string) => {
-  setNotice(null);
-
+const handleStartTask = async (taskId: string) => {
   try {
+    setNotice(null);
+
     await api.patch(`/tasks/${taskId}/start`);
-    await loadData();
 
-    setNotice({
-      type: 'success',
-      message: 'Задача переведена в статус «В работе».',
-    });
-  } catch (error: any) {
-    const serverMessage = error?.response?.data?.message;
-
+    await loadData(); // или твоя функция обновления задач/страницы
+  } catch (error) {
+    console.error('Ошибка запуска задачи:', error);
     setNotice({
       type: 'error',
-      message:
-        typeof serverMessage === 'string'
-          ? serverMessage
-          : 'Не удалось взять задачу в работу.',
+      message: 'Не удалось взять задачу в работу.',
     });
   }
 };
@@ -1258,10 +1250,6 @@ export default function DashboardPage() {
             />
           </div>
         )}
-
-       
-
-        
 
         <section className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 md:p-8 space-y-5">
           <div>

@@ -2,528 +2,746 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  Legend,
+} from 'recharts';
 import api from '@/services/api';
 import AppHeader from '@/components/AppHeader';
 import InlineNotice from '@/components/InlineNotice';
 
 type ProjectRole = 'OWNER' | 'MANAGER' | 'MEMBER';
+type AnalyticsPeriod = '7d' | '14d' | '30d';
 
 interface NoticeState {
   type: 'success' | 'error';
   message: string;
 }
 
-interface ProjectMemberItem {
-  id: string;
+interface TrendPoint {
+  label: string;
+  value: number;
+}
+
+interface DistributionPoint {
+  label: string;
+  value: number;
+}
+
+interface WorkloadMember {
+  employeeId: string;
+  fullName: string;
+  activeTasks: number;
+  completedTasks: number;
+  complexityPoints: number;
+}
+
+interface RiskMember {
+  employeeId: string;
+  fullName: string;
+  riskLevel: 'low' | 'medium' | 'high';
+  personalKpi: number;
+  overdueRate: number;
+  onTimeRate: number;
+}
+
+interface LeaderboardItem {
+  employeeId: string;
+  fullName: string;
+  personalKpi: number;
+}
+
+interface MonthlyItem {
+  month: string;
+  completedTasks: number;
+  submittedReports: number;
+  approvedReports: number;
+  overdueTasks: number;
+}
+
+interface TeamAnalyticsResponse {
+  period: AnalyticsPeriod;
+  summary: {
+    teamKpi: number;
+    onTimeRate: number;
+    completionRate: number;
+    overdueRate: number;
+    reportQuality: number;
+    completedTasksCount: number;
+  };
+  charts: {
+    teamCompletedTrend: TrendPoint[];
+    statusDistribution: DistributionPoint[];
+    workloadByMembers: WorkloadMember[];
+  };
+  membersRisk: RiskMember[];
+  leaderboard: LeaderboardItem[];
+  insights: string[];
+}
+
+interface PersonalAnalyticsResponse {
+  period: AnalyticsPeriod;
+  summary: {
+    personalKpi: number;
+    onTimeRate: number;
+    completionRate: number;
+    overdueRate: number;
+    reportQuality: number;
+    activeTasksCount: number;
+    activeComplexityTotal: number;
+    activeComplexityAverage: number;
+  };
+  charts: {
+    completedTasksTrend: TrendPoint[];
+    statusDistribution: DistributionPoint[];
+  };
+  insights: string[];
+}
+
+interface ProjectMember {
+  userId: string;
   roleInProject: ProjectRole;
-  user: {
+  user?: {
     id: string;
-    fullName: string;
+    fullName?: string;
     email?: string;
   };
 }
 
-interface TaskItem {
-  id: string;
-  title: string;
-  createdAt?: string;
-  updatedAt?: string;
-  dueDate?: string | null;
-  completedAt?: string | null;
-  status?: {
-    id: string;
-    name: string;
-  } | null;
-  assignee?: {
-    id: string;
-    fullName: string;
-    email?: string;
-  } | null;
-}
+const PERIOD_OPTIONS: Array<{ value: AnalyticsPeriod; label: string }> = [
+  { value: '7d', label: '7 дней' },
+  { value: '14d', label: '14 дней' },
+  { value: '30d', label: '30 дней' },
+];
 
-interface DashboardStats {
-  totalTasks: number;
-  completedTasks: number;
-  completionRate: number;
-}
-
-interface ContributionItem {
-  userId: string;
-  fullName: string;
-  completedTasks: number;
-  totalTasks: number;
-  contributionRate: number;
-}
-
-interface ActivityPoint {
-  label: string;
-  completed: number;
-  inProgress: number;
-}
+const PIE_COLORS = ['#38bdf8', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6'];
 
 function parseJwt(
   token: string,
-): { sub?: string; org?: string; role?: string } | null {
+): { sub?: string; id?: string; role?: string } | null {
   try {
     const payload = token.split('.')[1];
-    return JSON.parse(atob(payload));
+    const decoded = JSON.parse(atob(payload));
+    return decoded;
   } catch {
     return null;
   }
 }
 
-function normalizeStatusName(name?: string | null) {
-  return (name || '').trim().toLowerCase();
+function formatPercent(value: number) {
+  return `${Math.round(value)}%`;
 }
 
-function isCompletedStatus(statusName?: string | null) {
-  const s = normalizeStatusName(statusName);
-  return (
-    s.includes('done') ||
-    s.includes('completed') ||
-    s.includes('заверш') ||
-    s.includes('выполн')
-  );
-}
-
-function isInProgressStatus(statusName?: string | null) {
-  const s = normalizeStatusName(statusName);
-  return (
-    s.includes('progress') ||
-    s.includes('working') ||
-    s.includes('review') ||
-    s.includes('провер') ||
-    s.includes('работ') ||
-    s.includes('в работе')
-  );
-}
-
-function isBlockedStatus(statusName?: string | null) {
-  const s = normalizeStatusName(statusName);
-  return s.includes('block') || s.includes('blocked') || s.includes('заблок');
-}
-
-function formatDays(value: number) {
-  if (!Number.isFinite(value)) return '0 дн.';
-  return `${value.toFixed(1)} дн.`;
-}
-
-function getWeeklyActivity(tasks: TaskItem[]): ActivityPoint[] {
-  const now = new Date();
-  const labels: ActivityPoint[] = [];
-
-  for (let i = 7; i >= 0; i -= 1) {
-    const start = new Date(now);
-    start.setDate(now.getDate() - i * 7 - 6);
-    start.setHours(0, 0, 0, 0);
-
-    const end = new Date(now);
-    end.setDate(now.getDate() - i * 7);
-    end.setHours(23, 59, 59, 999);
-
-    const completed = tasks.filter((task) => {
-      if (!task.completedAt) return false;
-      const date = new Date(task.completedAt);
-      return date >= start && date <= end;
-    }).length;
-
-    const inProgress = tasks.filter((task) => {
-      const createdAt = task.createdAt ? new Date(task.createdAt) : null;
-      if (!createdAt) return false;
-
-      const statusName = task.status?.name;
-      return (
-        createdAt >= start &&
-        createdAt <= end &&
-        isInProgressStatus(statusName) &&
-        !isCompletedStatus(statusName)
-      );
-    }).length;
-
-    labels.push({
-      label: `Нед ${8 - i}`,
-      completed,
-      inProgress,
-    });
-  }
-
-  return labels;
-}
-
-function getTaskDurationInDays(task: TaskItem) {
-  if (!task.createdAt || !task.completedAt) return null;
-  const created = new Date(task.createdAt).getTime();
-  const completed = new Date(task.completedAt).getTime();
-  if (Number.isNaN(created) || Number.isNaN(completed) || completed < created) {
-    return null;
-  }
-  return (completed - created) / (1000 * 60 * 60 * 24);
-}
-
-function getPersonalInsights(params: {
-  overdue: number;
-  completionRate: number;
-  avgDurationDays: number;
-  inProgress: number;
-}) {
-  const result: Array<{
-    type: 'warning' | 'info' | 'success';
-    title: string;
-    description: string;
-  }> = [];
-
-  if (params.overdue > 0) {
-    result.push({
-      type: 'warning',
-      title: 'Просроченные задачи',
-      description:
-        'Есть задачи с нарушением дедлайна. Стоит в первую очередь закрыть просроченные элементы и пересмотреть приоритеты.',
-    });
-  }
-
-  if (params.inProgress >= 5) {
-    result.push({
-      type: 'info',
-      title: 'Высокая нагрузка',
-      description:
-        'Сейчас у вас много задач в работе одновременно. Для повышения эффективности стоит сократить количество параллельных задач.',
-    });
-  }
-
-  if (params.completionRate >= 80) {
-    result.push({
-      type: 'success',
-      title: 'Сильный темп выполнения',
-      description:
-        'Процент выполнения задач находится на высоком уровне. Это говорит о стабильной рабочей динамике.',
-    });
-  }
-
-  if (result.length === 0) {
-    result.push({
-      type: 'info',
-      title: 'Нейтральная динамика',
-      description:
-        'Показатели стабильны. Для усиления результата полезно увеличить долю завершённых задач и сократить время выполнения.',
-    });
-  }
-
-  if (Number.isFinite(params.avgDurationDays) && params.avgDurationDays > 0 && params.avgDurationDays <= 2) {
-    result.push({
-      type: 'success',
-      title: 'Хорошая скорость',
-      description:
-        'Среднее время выполнения задач находится на хорошем уровне, что положительно влияет на личную эффективность.',
-    });
-  }
-
-  return result.slice(0, 3);
-}
-
-function getTeamInsights(params: {
-  completionRate: number;
-  overdue: number;
-  membersCount: number;
-  topPerformer?: string;
-}) {
-  const result: Array<{
-    type: 'warning' | 'info' | 'success';
-    title: string;
-    description: string;
-  }> = [];
-
-  if (params.completionRate >= 75) {
-    result.push({
-      type: 'success',
-      title: 'Хороший общий прогресс',
-      description:
-        'Команда демонстрирует высокий процент выполнения задач, что говорит о стабильном темпе реализации проекта.',
-    });
-  } else {
-    result.push({
-      type: 'warning',
-      title: 'Темп выполнения можно усилить',
-      description:
-        'Процент завершённых задач пока недостаточно высок. Стоит пересмотреть приоритеты и загрузку участников проекта.',
-    });
-  }
-
-  if (params.overdue > 0) {
-    result.push({
-      type: 'warning',
-      title: 'Есть просроченные задачи',
-      description:
-        'В проекте присутствуют задачи с нарушенным сроком. Менеджеру стоит проверить причины просрочек и перераспределить нагрузку.',
-    });
-  }
-
-  result.push({
-    type: 'info',
-    title: 'Состав команды',
-    description:
-      params.topPerformer
-        ? `В проекте участвуют ${params.membersCount} чел. Наиболее заметный вклад сейчас показывает ${params.topPerformer}.`
-        : `В проекте участвуют ${params.membersCount} чел. Рекомендуется отслеживать динамику вклада по участникам.`,
-  });
-
-  return result.slice(0, 3);
-}
-
-function getInsightStyles(type: 'warning' | 'info' | 'success') {
-  switch (type) {
-    case 'warning':
-      return {
-        bg: 'rgba(255, 107, 107, 0.14)',
-        color: '#ff6b6b',
-        icon: '!',
-      };
-    case 'success':
-      return {
-        bg: 'rgba(25, 211, 162, 0.14)',
-        color: '#19d3a2',
-        icon: '✓',
-      };
+function riskLabel(level: 'low' | 'medium' | 'high') {
+  switch (level) {
+    case 'low':
+      return 'Низкий';
+    case 'medium':
+      return 'Средний';
+    case 'high':
+      return 'Высокий';
     default:
-      return {
-        bg: 'rgba(32, 189, 255, 0.14)',
-        color: '#20bdff',
-        icon: '•',
-      };
+      return '—';
   }
 }
 
-function getMaxActivityValue(points: ActivityPoint[]) {
-  return Math.max(...points.map((item) => item.completed + item.inProgress), 1);
+function riskClass(level: 'low' | 'medium' | 'high') {
+  switch (level) {
+    case 'low':
+      return 'border-emerald-900/50 bg-emerald-950/30 text-emerald-300';
+    case 'medium':
+      return 'border-amber-900/50 bg-amber-950/30 text-amber-300';
+    case 'high':
+      return 'border-red-900/50 bg-red-950/30 text-red-300';
+    default:
+      return 'border-neutral-700 bg-neutral-900 text-neutral-300';
+  }
 }
 
-function StatCard({
+function AnalyticsCard({
   title,
   value,
-  subtitle,
-  accent,
-  progress,
-  extra,
+  description,
+  accentClass = 'text-white',
 }: {
   title: string;
   value: string;
-  subtitle: string;
-  accent: string;
-  progress: number;
-  extra?: React.ReactNode;
+  description: string;
+  accentClass?: string;
 }) {
   return (
-    <div className="rounded-[28px] border border-white/10 bg-[#141414] p-6 shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <p className="text-[13px] uppercase tracking-[0.18em] text-white/45">
-            {title}
-          </p>
-          <h3 className="mt-3 text-5xl font-semibold leading-none text-white">
-            {value}
-          </h3>
-        </div>
-
-        <div
-          className="mt-1 h-3 w-3 rounded-full"
-          style={{ backgroundColor: accent }}
-        />
+    <div className="rounded-[28px] border border-white/10 bg-[#141414] p-6 shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
+      <p className="text-[12px] uppercase tracking-[0.22em] text-white/45">
+        {title}
+      </p>
+      <div className={`mt-4 text-5xl font-semibold leading-none ${accentClass}`}>
+        {value}
       </div>
-
-      <div className="mb-4 min-h-[40px]">
-        <p className="text-sm text-white/55">{subtitle}</p>
-        {extra}
-      </div>
-
-      <div className="h-2 w-full overflow-hidden rounded-full bg-white/8">
-        <div
-          className="h-full rounded-full transition-all"
-          style={{
-            width: `${Math.max(0, Math.min(progress, 100))}%`,
-            backgroundColor: accent,
-          }}
-        />
-      </div>
+      <p className="mt-4 text-sm leading-relaxed text-white/55">{description}</p>
     </div>
   );
 }
 
-function DistributionRow({
-  label,
+function SectionCard({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-[30px] border border-white/10 bg-[#141414] p-6 shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
+      <div className="mb-5">
+        <h2 className="text-2xl font-semibold text-white">{title}</h2>
+        {subtitle ? (
+          <p className="mt-2 text-sm text-white/55">{subtitle}</p>
+        ) : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function PeriodSwitcher({
   value,
-  color,
-  max,
+  onChange,
 }: {
-  label: string;
-  value: number;
-  color: string;
-  max: number;
-}) {
-  const width = max > 0 ? (value / max) * 100 : 0;
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span
-            className="h-3 w-3 rounded-full"
-            style={{ backgroundColor: color }}
-          />
-          <span className="text-base text-white/90">{label}</span>
-        </div>
-        <span className="text-base font-medium text-white">{value}</span>
-      </div>
-
-      <div className="h-2 w-full overflow-hidden rounded-full bg-white/8">
-        <div
-          className="h-full rounded-full"
-          style={{ width: `${width}%`, backgroundColor: color }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function RatingCircle({ value }: { value: number }) {
-  const safeValue = Math.max(0, Math.min(value, 100));
-
-  return (
-    <div className="flex items-center justify-center">
-      <div
-        className="relative flex h-[240px] w-[240px] items-center justify-center rounded-full"
-        style={{
-          background: `conic-gradient(#ffffff ${safeValue * 3.6}deg, rgba(255,255,255,0.14) 0deg)`,
-        }}
-      >
-        <div className="absolute flex h-[188px] w-[188px] flex-col items-center justify-center rounded-full bg-[#0b57f0]">
-          <div className="text-6xl font-semibold text-white">{safeValue}</div>
-          <div className="mt-2 text-sm uppercase tracking-[0.14em] text-white/70">
-            из 100
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ActivityChart({ data }: { data: ActivityPoint[] }) {
-  const maxValue = getMaxActivityValue(data);
-
-  return (
-    <div className="flex h-[320px] items-end gap-4 pt-4">
-      {data.map((item) => {
-        const total = item.completed + item.inProgress;
-        const totalHeight = (total / maxValue) * 220;
-        const completedHeight = (item.completed / maxValue) * 220;
-        const inProgressHeight = (item.inProgress / maxValue) * 220;
-
-        return (
-          <div
-            key={item.label}
-            className="flex flex-1 flex-col items-center justify-end gap-3"
-          >
-            <div className="flex h-[230px] w-full items-end justify-center">
-              <div
-                className="relative w-full max-w-[68px] overflow-hidden rounded-t-[16px] rounded-b-[12px] bg-[#cfc9ff1f]"
-                style={{ height: `${Math.max(totalHeight, 26)}px` }}
-              >
-                <div
-                  className="absolute bottom-0 left-0 right-0 rounded-t-[16px] bg-[#1da1ff]"
-                  style={{ height: `${Math.max(completedHeight, 10)}px` }}
-                />
-                <div
-                  className="absolute left-0 right-0 top-0 bg-[#cfc9ff]"
-                  style={{ height: `${Math.max(inProgressHeight, 8)}px` }}
-                />
-              </div>
-            </div>
-
-            <span className="text-sm text-white/55">{item.label}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function InsightList({
-  items,
-}: {
-  items: Array<{
-    type: 'warning' | 'info' | 'success';
-    title: string;
-    description: string;
-  }>;
+  value: AnalyticsPeriod;
+  onChange: (value: AnalyticsPeriod) => void;
 }) {
   return (
-    <div className="mt-8 space-y-6">
-      {items.map((item) => {
-        const styles = getInsightStyles(item.type);
-
-        return (
-          <div
-            key={item.title}
-            className="flex gap-4 rounded-[24px] border border-white/8 bg-white/[0.03] p-5"
-          >
-            <div
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-xl font-semibold"
-              style={{
-                backgroundColor: styles.bg,
-                color: styles.color,
-              }}
-            >
-              {styles.icon}
-            </div>
-
-            <div>
-              <h3 className="text-2xl font-semibold text-white">
-                {item.title}
-              </h3>
-              <p className="mt-2 text-lg leading-relaxed text-white/60">
-                {item.description}
-              </p>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function TeamLeaderboard({
-  items,
-}: {
-  items: ContributionItem[];
-}) {
-  return (
-    <div className="space-y-4">
-      {items.map((member, index) => (
-        <div
-          key={member.userId ?? `{member.fullName}-${index}`}
-          className="flex items-center justify-between rounded-[22px] border border-white/8 bg-white/[0.03] px-5 py-4"
+    <div className="flex flex-wrap gap-3">
+      {PERIOD_OPTIONS.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onChange(option.value)}
+          className={[
+            'rounded-full px-5 py-3 text-sm font-medium transition',
+            value === option.value
+              ? 'bg-white text-black'
+              : 'border border-white/10 bg-white/5 text-white/75 hover:bg-white/10 hover:text-white',
+          ].join(' ')}
         >
-          <div className="flex items-center gap-4">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-lg font-semibold text-black">
-              {index + 1}
-            </div>
-
-            <div>
-              <div className="text-xl font-semibold text-white">
-                {member.fullName}
-              </div>
-              <div className="mt-1 text-sm text-white/50">
-                Выполнено {member.completedTasks} из {member.totalTasks}
-              </div>
-            </div>
-          </div>
-
-          <div className="text-right">
-            <div className="text-3xl font-semibold text-white">
-              {member.contributionRate}%
-            </div>
-            <div className="mt-1 text-sm text-white/45">вклад</div>
-          </div>
-        </div>
+          {option.label}
+        </button>
       ))}
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="rounded-[24px] border border-dashed border-white/10 bg-black/20 p-8 text-center text-white/45">
+      {text}
+    </div>
+  );
+}
+
+function TeamAnalyticsView({
+  data,
+  monthly,
+}: {
+  data: TeamAnalyticsResponse;
+  monthly: MonthlyItem[];
+}) {
+  return (
+    <div className="space-y-8">
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-4">
+        <AnalyticsCard
+          title="Командный KPI"
+          value={formatPercent(data.summary.teamKpi)}
+          description="Интегральная оценка эффективности команды с учётом сроков, завершения задач, качества отчётов и дисциплины."
+          accentClass="text-white"
+        />
+        <AnalyticsCard
+          title="Выполнение в срок"
+          value={formatPercent(data.summary.onTimeRate)}
+          description="Доля задач команды, завершённых в рамках установленного дедлайна."
+          accentClass="text-emerald-300"
+        />
+        <AnalyticsCard
+          title="Просрочки"
+          value={formatPercent(data.summary.overdueRate)}
+          description="Доля задач периода, по которым наблюдается просрочка или факт завершения позже дедлайна."
+          accentClass="text-amber-300"
+        />
+        <AnalyticsCard
+          title="Качество отчётов"
+          value={formatPercent(data.summary.reportQuality)}
+          description="Процент отчётов, которые были приняты с первого раза без возврата на доработку."
+          accentClass="text-sky-300"
+        />
+      </section>
+
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[2fr_1fr]">
+        <SectionCard
+          title="Темп выполнения команды"
+          subtitle="Динамика завершения задач по дням в выбранном периоде."
+        >
+          {data.charts.teamCompletedTrend.length === 0 ? (
+            <EmptyState text="Недостаточно данных для построения графика." />
+          ) : (
+            <div className="h-[320px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={data.charts.teamCompletedTrend}>
+                  <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                  <XAxis dataKey="label" stroke="rgba(255,255,255,0.35)" />
+                  <YAxis stroke="rgba(255,255,255,0.35)" allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      background: '#111',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: 16,
+                      color: '#fff',
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#10b981"
+                    strokeWidth={3}
+                    dot={{ r: 4 }}
+                    activeDot={{ r: 6 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="Структура задач"
+          subtitle="Распределение задач команды по основным статусам."
+        >
+          {data.charts.statusDistribution.every((item) => item.value === 0) ? (
+            <EmptyState text="Нет данных по статусам задач." />
+          ) : (
+            <div className="h-[320px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={data.charts.statusDistribution}
+                    dataKey="value"
+                    nameKey="label"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={95}
+                    innerRadius={55}
+                    paddingAngle={4}
+                  >
+                    {data.charts.statusDistribution.map((entry, index) => (
+                      <Cell
+                        key={entry.label}
+                        fill={PIE_COLORS[index % PIE_COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    cursor={false}
+                    contentStyle={{
+                      background: '#111',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: 16,
+                      color: '#fff',
+                    }}
+                  />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </SectionCard>
+      </section>
+
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.7fr_1fr]">
+        <SectionCard
+          title="Нагрузка по участникам"
+          subtitle="Сравнение активной нагрузки и темпа выполнения по каждому сотруднику."
+        >
+          {data.charts.workloadByMembers.length === 0 ? (
+            <EmptyState text="В проекте пока нет данных по загрузке участников." />
+          ) : (
+            <div className="h-[360px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={data.charts.workloadByMembers}
+                  layout="vertical"
+                  margin={{ top: 10, right: 20, left: 20, bottom: 10 }}
+                >
+                  <CartesianGrid stroke="rgba(255,255,255,0.08)" horizontal={false} />
+                  <XAxis type="number" stroke="rgba(255,255,255,0.35)" />
+                  <YAxis
+                    type="category"
+                    dataKey="fullName"
+                    width={160}
+                    stroke="rgba(255,255,255,0.35)"
+                  />
+                  <Tooltip
+                    cursor={false}
+                    contentStyle={{
+                      background: '#111',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: 16,
+                      color: '#fff',
+                    }}
+                  />
+                  <Legend />
+                  <Bar dataKey="activeTasks" name="Активные задачи" fill="#38bdf8" radius={[0, 8, 8, 0]} />
+                  <Bar dataKey="completedTasks" name="Завершённые" fill="#10b981" radius={[0, 8, 8, 0]} />
+                  <Bar dataKey="complexityPoints" name="Баллы сложности" fill="#a855f7" radius={[0, 8, 8, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="Лидерборд команды"
+          subtitle="Участники проекта, отсортированные по личному KPI."
+        >
+          {data.leaderboard.length === 0 ? (
+            <EmptyState text="Недостаточно данных для построения рейтинга." />
+          ) : (
+            <div className="space-y-3">
+              {data.leaderboard.map((member, index) => (
+                <div
+                  key={member.employeeId}
+                  className="flex items-center justify-between rounded-2xl border border-white/8 bg-black/20 px-4 py-4"
+                >
+                  <div>
+                    <div className="text-sm text-white/45">#{index + 1}</div>
+                    <div className="mt-1 text-base font-medium text-white">
+                      {member.fullName}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm text-white/45">KPI</div>
+                    <div className="mt-1 text-xl font-semibold text-emerald-300">
+                      {formatPercent(member.personalKpi)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+      </section>
+
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.3fr_1fr]">
+        <SectionCard
+          title="Риск-профиль сотрудников"
+          subtitle="Оценка индивидуального риска по срокам, нагрузке и дисциплине исполнения."
+        >
+          {data.membersRisk.length === 0 ? (
+            <EmptyState text="Риск-профиль пока недоступен." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full border-separate border-spacing-y-3">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-[0.14em] text-white/40">
+                    <th className="px-4 py-2">Сотрудник</th>
+                    <th className="px-4 py-2">Риск</th>
+                    <th className="px-4 py-2">KPI</th>
+                    <th className="px-4 py-2">В срок</th>
+                    <th className="px-4 py-2">Просрочки</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.membersRisk.map((member) => (
+                    <tr key={member.employeeId} className="rounded-2xl bg-black/20">
+                      <td className="rounded-l-2xl px-4 py-4 text-white">
+                        {member.fullName}
+                      </td>
+                      <td className="px-4 py-4">
+                        <span
+                          className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${riskClass(member.riskLevel)}`}
+                        >
+                          {riskLabel(member.riskLevel)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 text-white">
+                        {formatPercent(member.personalKpi)}
+                      </td>
+                      <td className="px-4 py-4 text-white">
+                        {formatPercent(member.onTimeRate)}
+                      </td>
+                      <td className="rounded-r-2xl px-4 py-4 text-white">
+                        {formatPercent(member.overdueRate)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="Помесячная сводка"
+          subtitle="Динамика проекта по месяцам: завершение задач, отчёты и просрочки."
+        >
+          {monthly.length === 0 ? (
+            <EmptyState text="Помесячная сводка пока недоступна." />
+          ) : (
+            <div className="h-[360px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={monthly}>
+                  <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                  <XAxis dataKey="month" stroke="rgba(255,255,255,0.35)" />
+                  <YAxis stroke="rgba(255,255,255,0.35)" allowDecimals={false} />
+                  <Tooltip
+                    cursor={false}
+                    contentStyle={{
+                      background: '#111',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: 16,
+                      color: '#fff',
+                    }}
+                  />
+                  <Legend />
+                  <Bar dataKey="completedTasks" name="Завершённые задачи" fill="#10b981" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="approvedReports" name="Принятые отчёты" fill="#38bdf8" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="overdueTasks" name="Просрочки" fill="#ef4444" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </SectionCard>
+      </section>
+
+      <SectionCard
+        title="Аналитическая сводка"
+        subtitle="Краткие автоматически сформированные выводы по текущим показателям команды."
+      >
+        {data.insights.length === 0 ? (
+          <EmptyState text="Пока недостаточно данных для формирования аналитических выводов." />
+        ) : (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {data.insights.map((insight, index) => (
+              <div
+                key={`${insight}-${index}`}
+                className="rounded-2xl border border-white/8 bg-black/20 px-5 py-4 text-white/80"
+              >
+                {insight}
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+    </div>
+  );
+}
+
+function PersonalAnalyticsView({
+  data,
+  monthly,
+}: {
+  data: PersonalAnalyticsResponse;
+  monthly: MonthlyItem[];
+}) {
+  return (
+    <div className="space-y-8">
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-4">
+        <AnalyticsCard
+          title="Личный KPI"
+          value={formatPercent(data.summary.personalKpi)}
+          description="Интегральная оценка вашей эффективности с учётом сроков, выполнения задач, качества отчётов и дисциплины."
+          accentClass="text-white"
+        />
+        <AnalyticsCard
+          title="Выполнение в срок"
+          value={formatPercent(data.summary.onTimeRate)}
+          description="Доля ваших задач, завершённых в рамках установленного дедлайна."
+          accentClass="text-emerald-300"
+        />
+        <AnalyticsCard
+          title="Просрочки"
+          value={formatPercent(data.summary.overdueRate)}
+          description="Процент задач, по которым зафиксировано превышение срока выполнения."
+          accentClass="text-amber-300"
+        />
+        <AnalyticsCard
+          title="Качество отчётов"
+          value={formatPercent(data.summary.reportQuality)}
+          description="Процент отчётов, принятых с первого раза без возврата на доработку."
+          accentClass="text-sky-300"
+        />
+      </section>
+
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[2fr_1fr]">
+        <SectionCard
+          title="Динамика завершения задач"
+          subtitle="Количество ваших завершённых задач по дням в выбранном периоде."
+        >
+          {data.charts.completedTasksTrend.length === 0 ? (
+            <EmptyState text="Недостаточно данных для построения графика." />
+          ) : (
+            <div className="h-[320px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={data.charts.completedTasksTrend}>
+                  <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                  <XAxis dataKey="label" stroke="rgba(255,255,255,0.35)" />
+                  <YAxis stroke="rgba(255,255,255,0.35)" allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      background: '#111',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: 16,
+                      color: '#fff',
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#38bdf8"
+                    strokeWidth={3}
+                    dot={{ r: 4 }}
+                    activeDot={{ r: 6 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="Структура задач"
+          subtitle="Распределение ваших задач по статусам."
+        >
+          {data.charts.statusDistribution.every((item) => item.value === 0) ? (
+            <EmptyState text="Нет данных по структуре задач." />
+          ) : (
+            <div className="h-[320px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={data.charts.statusDistribution}
+                    dataKey="value"
+                    nameKey="label"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={95}
+                    innerRadius={55}
+                    paddingAngle={4}
+                  >
+                    {data.charts.statusDistribution.map((entry, index) => (
+                      <Cell
+                        key={entry.label}
+                        fill={PIE_COLORS[index % PIE_COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      background: '#111',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: 16,
+                      color: '#fff',
+                    }}
+                  />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </SectionCard>
+      </section>
+
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_1.4fr]">
+        <SectionCard
+          title="Текущая нагрузка"
+          subtitle="Оценка вашей активной загрузки в данный момент."
+        >
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-white/8 bg-black/20 p-5">
+              <div className="text-sm text-white/45">Задач в работе</div>
+              <div className="mt-3 text-3xl font-semibold text-white">
+                {data.summary.activeTasksCount}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/8 bg-black/20 p-5">
+              <div className="text-sm text-white/45">Суммарная сложность</div>
+              <div className="mt-3 text-3xl font-semibold text-emerald-300">
+                {data.summary.activeComplexityTotal}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/8 bg-black/20 p-5">
+              <div className="text-sm text-white/45">Средняя сложность</div>
+              <div className="mt-3 text-3xl font-semibold text-sky-300">
+                {data.summary.activeComplexityAverage}
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Помесячная сводка"
+          subtitle="Ваши рабочие показатели в проекте по месяцам."
+        >
+          {monthly.length === 0 ? (
+            <EmptyState text="Помесячная сводка пока недоступна." />
+          ) : (
+            <div className="h-[320px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={monthly}>
+                  <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                  <XAxis dataKey="month" stroke="rgba(255,255,255,0.35)" />
+                  <YAxis stroke="rgba(255,255,255,0.35)" allowDecimals={false} />
+                  <Tooltip
+                    cursor={false}
+                    contentStyle={{
+                      background: '#111',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: 16,
+                      color: '#fff',
+                    }}
+                  />
+                  <Legend />
+                  <Bar dataKey="completedTasks" name="Завершённые задачи" fill="#10b981" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="approvedReports" name="Принятые отчёты" fill="#38bdf8" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="overdueTasks" name="Просрочки" fill="#ef4444" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </SectionCard>
+      </section>
+
+      <SectionCard
+        title="Аналитическая сводка"
+        subtitle="Краткие автоматически сформированные выводы по вашим рабочим показателям."
+      >
+        {data.insights.length === 0 ? (
+          <EmptyState text="Пока недостаточно данных для формирования аналитических выводов." />
+        ) : (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {data.insights.map((insight, index) => (
+              <div
+                key={`${insight}-${index}`}
+                className="rounded-2xl border border-white/8 bg-black/20 px-5 py-4 text-white/80"
+              >
+                {insight}
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
     </div>
   );
 }
@@ -532,629 +750,142 @@ export default function ProjectAnalyticsPage() {
   const params = useParams();
   const projectId = params.id as string;
 
+  const [period, setPeriod] = useState<AnalyticsPeriod>('14d');
+  const [projectRole, setProjectRole] = useState<ProjectRole | null>(null);
+
+  const [teamData, setTeamData] = useState<TeamAnalyticsResponse | null>(null);
+  const [personalData, setPersonalData] = useState<PersonalAnalyticsResponse | null>(null);
+  const [monthlyData, setMonthlyData] = useState<MonthlyItem[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<NoticeState | null>(null);
 
-  const [currentUserId, setCurrentUserId] = useState('');
-  const [currentSystemRole, setCurrentSystemRole] = useState('');
+  const isManagerView = useMemo(() => {
+    return projectRole === 'OWNER' || projectRole === 'MANAGER';
+  }, [projectRole]);
 
-  const [members, setMembers] = useState<ProjectMemberItem[]>([]);
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [dashboard, setDashboard] = useState<DashboardStats | null>(null);
-  const [contributions, setContributions] = useState<ContributionItem[]>([]);
-
-  useEffect(() => {
+  const loadProjectRole = async () => {
     const token = localStorage.getItem('token') || '';
-    if (!token) return;
-
     const payload = parseJwt(token);
-    setCurrentUserId(payload?.sub ?? '');
-    setCurrentSystemRole(payload?.role ?? '');
-  }, []);
+    const currentUserId = payload?.sub || payload?.id;
+
+    if (!currentUserId) {
+      throw new Error('Не удалось определить пользователя.');
+    }
+
+    const membersRes = await api.get(`/projects/${projectId}/members`);
+    const members: ProjectMember[] = membersRes.data ?? [];
+
+    const currentMember = members.find(
+      (member) =>
+        member.userId === currentUserId || member.user?.id === currentUserId,
+    );
+
+    if (!currentMember) {
+      throw new Error('Не удалось определить роль пользователя в проекте.');
+    }
+
+    setProjectRole(currentMember.roleInProject);
+    return currentMember.roleInProject;
+  };
+
+  const loadAnalytics = async (resolvedRole?: ProjectRole | null) => {
+    const role = resolvedRole ?? projectRole;
+    if (!role) return;
+
+    setLoading(true);
+    setNotice(null);
+
+    try {
+      const [monthlyRes, analyticsRes] = await Promise.all([
+        api.get(`/analytics/projects/${projectId}/monthly`),
+        role === 'OWNER' || role === 'MANAGER'
+          ? api.get(`/analytics/projects/${projectId}/team?period=${period}`)
+          : api.get(`/analytics/projects/${projectId}/personal?period=${period}`),
+      ]);
+
+      setMonthlyData(monthlyRes.data ?? []);
+
+      if (role === 'OWNER' || role === 'MANAGER') {
+        setTeamData(analyticsRes.data);
+        setPersonalData(null);
+      } else {
+        setPersonalData(analyticsRes.data);
+        setTeamData(null);
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки аналитики:', error);
+      setNotice({
+        type: 'error',
+        message: 'Не удалось загрузить аналитические данные проекта.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (!projectId) return;
-
-    const loadData = async () => {
-      setLoading(true);
-      setNotice(null);
-
+    const bootstrap = async () => {
       try {
-        const [membersRes, tasksRes, dashboardRes, contributionsRes] =
-          await Promise.all([
-            api.get(`/projects/${projectId}/members`).catch(() => ({ data: [] })),
-            api.get(`/tasks/project/${projectId}`).catch(() => ({ data: [] })),
-            api.get(`/projects/${projectId}/dashboard`).catch(() => ({
-              data: null,
-            })),
-            api.get(`/projects/${projectId}/contributions`).catch(() => ({
-              data: [],
-            })),
-          ]);
-
-        setMembers(membersRes.data ?? []);
-        setTasks(tasksRes.data ?? []);
-        setDashboard(dashboardRes.data ?? null);
-        setContributions(contributionsRes.data ?? []);
+        const role = await loadProjectRole();
+        await loadAnalytics(role);
       } catch (error) {
-        console.error('Ошибка загрузки аналитики проекта:', error);
+        console.error('Ошибка инициализации аналитики:', error);
         setNotice({
           type: 'error',
-          message: 'Не удалось загрузить аналитику проекта.',
+          message: 'Не удалось определить роль пользователя или загрузить аналитику.',
         });
-      } finally {
         setLoading(false);
       }
     };
 
-    loadData();
+    bootstrap();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  const currentProjectMember = useMemo(() => {
-    return members.find((member) => member.user?.id === currentUserId) ?? null;
-  }, [members, currentUserId]);
-
-  const currentProjectRole = currentProjectMember?.roleInProject ?? null;
-
-  const isManagerView = useMemo(() => {
-    return (
-      currentProjectRole === 'OWNER' ||
-      currentProjectRole === 'MANAGER' ||
-      currentSystemRole === 'admin'
-    );
-  }, [currentProjectRole, currentSystemRole]);
-
-  const myTasks = useMemo(() => {
-    return tasks.filter((task) => task.assignee?.id === currentUserId);
-  }, [tasks, currentUserId]);
-
-  const personalMetrics = useMemo(() => {
-    const total = myTasks.length;
-    const completed = myTasks.filter((task) =>
-      isCompletedStatus(task.status?.name),
-    ).length;
-
-    const inProgress = myTasks.filter((task) => {
-      const statusName = task.status?.name;
-      return (
-        !isCompletedStatus(statusName) &&
-        !isBlockedStatus(statusName) &&
-        isInProgressStatus(statusName)
-      );
-    }).length;
-
-    const blocked = myTasks.filter((task) =>
-      isBlockedStatus(task.status?.name),
-    ).length;
-
-    const overdue = myTasks.filter((task) => {
-      if (!task.dueDate) return false;
-      const due = new Date(task.dueDate);
-      const isDone = isCompletedStatus(task.status?.name);
-      return !isDone && due.getTime() < Date.now();
-    }).length;
-
-    const completionRate =
-      total > 0 ? Math.round((completed / total) * 100) : 0;
-
-    const completedDurations = myTasks
-      .map(getTaskDurationInDays)
-      .filter((value): value is number => value !== null);
-
-    const avgDurationDays =
-      completedDurations.length > 0
-        ? completedDurations.reduce((acc, value) => acc + value, 0) /
-          completedDurations.length
-        : 0;
-
-    const reliabilityScore = Math.max(
-      0,
-      Math.min(100, Math.round(((total - overdue) / Math.max(total, 1)) * 100)),
-    );
-
-    const speedScore =
-      avgDurationDays > 0
-        ? Math.max(50, Math.min(100, Math.round(100 - avgDurationDays * 10)))
-        : 75;
-
-    const contributionScore = completionRate;
-
-    const rating = Math.round(
-      contributionScore * 0.45 + speedScore * 0.25 + reliabilityScore * 0.3,
-    );
-
-    return {
-      total,
-      completed,
-      inProgress,
-      blocked,
-      overdue,
-      completionRate,
-      avgDurationDays,
-      reliabilityScore,
-      speedScore,
-      contributionScore,
-      rating,
-    };
-  }, [myTasks]);
-
-  const personalActivity = useMemo(() => {
-    return getWeeklyActivity(myTasks);
-  }, [myTasks]);
-
-  const personalInsights = useMemo(() => {
-    return getPersonalInsights({
-      overdue: personalMetrics.overdue,
-      completionRate: personalMetrics.completionRate,
-      avgDurationDays: personalMetrics.avgDurationDays,
-      inProgress: personalMetrics.inProgress,
-    });
-  }, [personalMetrics]);
-
-  const teamMetrics = useMemo(() => {
-    const totalTasks = dashboard?.totalTasks ?? tasks.length;
-    const completedTasks =
-      dashboard?.completedTasks ??
-      tasks.filter((task) => isCompletedStatus(task.status?.name)).length;
-
-    const completionRate =
-      dashboard?.completionRate ??
-      (totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0);
-
-    const overdue = tasks.filter((task) => {
-      if (!task.dueDate) return false;
-      const isDone = isCompletedStatus(task.status?.name);
-      return !isDone && new Date(task.dueDate).getTime() < Date.now();
-    }).length;
-
-    const inProgress = tasks.filter((task) => {
-      const statusName = task.status?.name;
-      return (
-        !isCompletedStatus(statusName) &&
-        !isBlockedStatus(statusName) &&
-        isInProgressStatus(statusName)
-      );
-    }).length;
-
-    const blocked = tasks.filter((task) =>
-      isBlockedStatus(task.status?.name),
-    ).length;
-
-    const membersCount = members.length;
-
-    const avgContribution =
-      contributions.length > 0
-        ? Math.round(
-            contributions.reduce(
-              (acc, item) => acc + (item.contributionRate || 0),
-              0,
-            ) / contributions.length,
-          )
-        : 0;
-
-    const topPerformer = [...contributions].sort(
-      (a, b) => b.contributionRate - a.contributionRate,
-    )[0];
-
-    return {
-      totalTasks,
-      completedTasks,
-      completionRate,
-      overdue,
-      inProgress,
-      blocked,
-      membersCount,
-      avgContribution,
-      topPerformer,
-    };
-  }, [dashboard, tasks, members, contributions]);
-
-  const teamActivity = useMemo(() => {
-    return getWeeklyActivity(tasks);
-  }, [tasks]);
-
-  const teamInsights = useMemo(() => {
-    return getTeamInsights({
-      completionRate: teamMetrics.completionRate,
-      overdue: teamMetrics.overdue,
-      membersCount: teamMetrics.membersCount,
-      topPerformer: teamMetrics.topPerformer?.fullName,
-    });
-  }, [teamMetrics]);
-
-  const teamDistributionMax = Math.max(
-    teamMetrics.completedTasks,
-    teamMetrics.inProgress,
-    teamMetrics.blocked,
-    1,
-  );
-
-  const personalDistributionMax = Math.max(
-    personalMetrics.completed,
-    personalMetrics.inProgress,
-    personalMetrics.blocked,
-    1,
-  );
+  useEffect(() => {
+    if (!projectRole) return;
+    loadAnalytics();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period]);
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <AppHeader
-        projectId={projectId}
-        projectRole={currentProjectRole}
-        systemRole={currentSystemRole}
-      />
+      <AppHeader projectId={projectId} projectRole={projectRole} />
 
       <main className="mx-auto max-w-[1600px] px-8 py-10">
-        <div className="mb-8 flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+        <div className="mb-8 flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <div className="mb-3 flex items-center gap-3 text-sm text-white/45">
-              <span>Аналитика</span>
-              <span>›</span>
-              <span className="text-white/80">
-                {isManagerView ? 'Командный обзор' : 'Личный отчёт'}
-              </span>
-            </div>
-
-            <h1 className="text-6xl font-semibold leading-[0.95] text-white">
-              {isManagerView ? 'Аналитика команды' : 'Моя аналитика'}
+            <p className="text-[13px] uppercase tracking-[0.22em] text-white/40">
+              Аналитика проекта
+            </p>
+            <h1 className="mt-3 text-6xl font-semibold leading-[0.95] text-white">
+              {isManagerView ? 'Командная аналитика' : 'Личная аналитика'}
             </h1>
-
-            <p className="mt-4 max-w-[860px] text-xl leading-relaxed text-white/55">
+            <p className="mt-4 max-w-[980px] text-lg leading-relaxed text-white/55">
               {isManagerView
-                ? 'Командные KPI, вклад участников, динамика выполнения задач и управленческие рекомендации по проекту.'
-                : 'Персональная статистика выполнения задач, динамика активности, рейтинг эффективности и рекомендации по повышению результата.'}
+                ? 'Отслеживайте эффективность команды, дисциплину по срокам, качество отчётов и распределение рабочей нагрузки.'
+                : 'Оценивайте личную результативность, качество отчётов, дисциплину по срокам и текущую рабочую нагрузку.'}
             </p>
           </div>
 
-          <div className="flex items-center gap-4 rounded-[24px] border border-white/10 bg-[#141414] px-5 py-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#0b57f0] text-2xl font-semibold text-white">
-              {isManagerView ? 'TM' : 'ME'}
-            </div>
-
-            <div>
-              <div className="text-2xl font-semibold text-white">
-                {isManagerView
-                  ? 'Режим менеджера'
-                  : currentProjectMember?.user?.fullName || 'Сотрудник проекта'}
-              </div>
-              <div className="mt-1 text-base text-white/55">
-                {isManagerView
-                  ? 'Командная аналитика проекта'
-                  : 'Персональная аналитика сотрудника'}
-              </div>
-            </div>
-          </div>
+          <PeriodSwitcher value={period} onChange={setPeriod} />
         </div>
 
-        {notice && <InlineNotice type={notice.type} message={notice.message} />}
+        {notice ? <InlineNotice type={notice.type} message={notice.message} /> : null}
 
         {loading ? (
-          <div className="rounded-[28px] border border-white/10 bg-[#141414] p-10 text-lg text-white/70">
-            Загрузка аналитики проекта...
+          <div className="rounded-[30px] border border-white/10 bg-[#141414] p-10 text-lg text-white/70">
+            Загрузка аналитики...
           </div>
-        ) : isManagerView ? (
-          <>
-            <section className="grid grid-cols-1 gap-6 md:grid-cols-2 2xl:grid-cols-4">
-              <StatCard
-                title="Прогресс проекта"
-                value={`${teamMetrics.completionRate}%`}
-                subtitle="Общий процент выполнения задач команды"
-                accent="#1da1ff"
-                progress={teamMetrics.completionRate}
-                extra={
-                  <div className="mt-2 text-sm font-medium text-[#19d3a2]">
-                    Выполнено {teamMetrics.completedTasks} из {teamMetrics.totalTasks}
-                  </div>
-                }
-              />
-
-              <StatCard
-                title="Участники"
-                value={`${teamMetrics.membersCount}`}
-                subtitle="Количество сотрудников в проектной команде"
-                accent="#a78bfa"
-                progress={Math.min(teamMetrics.membersCount * 10, 100)}
-              />
-
-              <StatCard
-                title="Просрочено"
-                value={`${teamMetrics.overdue}`}
-                subtitle="Задачи с нарушением сроков исполнения"
-                accent="#ff6b6b"
-                progress={Math.min((teamMetrics.overdue / Math.max(teamMetrics.totalTasks, 1)) * 100 * 4, 100)}
-              />
-
-              <StatCard
-                title="Средний вклад"
-                value={`${teamMetrics.avgContribution}%`}
-                subtitle="Средний показатель вклада по участникам"
-                accent="#19d3a2"
-                progress={teamMetrics.avgContribution}
-                extra={
-                  teamMetrics.topPerformer ? (
-                    <div className="mt-2 text-sm font-medium text-[#19d3a2]">
-                      Лидер: {teamMetrics.topPerformer.fullName}
-                    </div>
-                  ) : null
-                }
-              />
-            </section>
-
-            <section className="mt-8 grid grid-cols-1 gap-6 2xl:grid-cols-[1.7fr_0.8fr]">
-              <div className="rounded-[32px] border border-white/10 bg-[#141414] p-7 shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
-                    <h2 className="text-4xl font-semibold text-white">
-                      Динамика команды
-                    </h2>
-                    <p className="mt-2 text-lg text-white/55">
-                      Активность по задачам за последние 8 недель
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap gap-3">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/80">
-                      <span className="h-2.5 w-2.5 rounded-full bg-[#1da1ff]" />
-                      Выполнено
-                    </div>
-                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/80">
-                      <span className="h-2.5 w-2.5 rounded-full bg-[#cfc9ff]" />
-                      В работе
-                    </div>
-                  </div>
-                </div>
-
-                <ActivityChart data={teamActivity} />
-              </div>
-
-              <div className="rounded-[32px] bg-[#0b57f0] p-7 shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
-                <h2 className="text-4xl font-semibold text-white">
-                  Эффективность проекта
-                </h2>
-
-                <div className="mt-8">
-                  <RatingCircle value={teamMetrics.completionRate} />
-                </div>
-
-                <div className="mt-8 grid grid-cols-3 gap-4 border-t border-white/15 pt-6">
-                  <div className="text-center">
-                    <div className="text-xs uppercase tracking-[0.16em] text-white/65">
-                      Выполнено
-                    </div>
-                    <div className="mt-2 text-4xl font-semibold text-white">
-                      {teamMetrics.completedTasks}
-                    </div>
-                  </div>
-
-                  <div className="text-center">
-                    <div className="text-xs uppercase tracking-[0.16em] text-white/65">
-                      В работе
-                    </div>
-                    <div className="mt-2 text-4xl font-semibold text-white">
-                      {teamMetrics.inProgress}
-                    </div>
-                  </div>
-
-                  <div className="text-center">
-                    <div className="text-xs uppercase tracking-[0.16em] text-white/65">
-                      Просрочено
-                    </div>
-                    <div className="mt-2 text-4xl font-semibold text-white">
-                      {teamMetrics.overdue}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="mt-8 grid grid-cols-1 gap-6 2xl:grid-cols-[0.95fr_1.35fr]">
-              <div className="rounded-[32px] border border-white/10 bg-[#141414] p-7 shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
-                <h2 className="text-4xl font-semibold text-white">
-                  Структура задач
-                </h2>
-
-                <div className="mt-8 space-y-7">
-                  <DistributionRow
-                    label="Выполнено"
-                    value={teamMetrics.completedTasks}
-                    color="#1da1ff"
-                    max={teamDistributionMax}
-                  />
-                  <DistributionRow
-                    label="В работе"
-                    value={teamMetrics.inProgress}
-                    color="#8b5cf6"
-                    max={teamDistributionMax}
-                  />
-                  <DistributionRow
-                    label="Заблокировано"
-                    value={teamMetrics.blocked}
-                    color="#ff6b6b"
-                    max={teamDistributionMax}
-                  />
-                </div>
-              </div>
-
-              <div className="rounded-[32px] border border-white/10 bg-[#141414] p-7 shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
-                <h2 className="text-4xl font-semibold text-white">
-                  Управленческие выводы
-                </h2>
-                <InsightList items={teamInsights} />
-              </div>
-            </section>
-
-            <section className="mt-8 rounded-[32px] border border-white/10 bg-[#141414] p-7 shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
-              <div className="mb-6">
-                <h2 className="text-4xl font-semibold text-white">
-                  Вклад участников
-                </h2>
-                <p className="mt-2 text-lg text-white/55">
-                  Сравнение вклада сотрудников по выполненным задачам
-                </p>
-              </div>
-
-              {contributions.length > 0 ? (
-                <TeamLeaderboard
-                  items={[...contributions].sort(
-                    (a, b) => b.contributionRate - a.contributionRate,
-                  )}
-                />
-              ) : (
-                <div className="rounded-[22px] border border-white/8 bg-white/[0.03] p-6 text-lg text-white/60">
-                  Пока недостаточно данных для отображения вклада участников.
-                </div>
-              )}
-            </section>
-          </>
+        ) : isManagerView && teamData ? (
+          <TeamAnalyticsView data={teamData} monthly={monthlyData} />
+        ) : personalData ? (
+          <PersonalAnalyticsView data={personalData} monthly={monthlyData} />
         ) : (
-          <>
-            <section className="grid grid-cols-1 gap-6 md:grid-cols-2 2xl:grid-cols-4">
-              <StatCard
-                title="Выполнение задач"
-                value={`${personalMetrics.completionRate}%`}
-                subtitle="Доля завершённых задач в рамках проекта"
-                accent="#1da1ff"
-                progress={personalMetrics.completionRate}
-                extra={
-                  <div className="mt-2 text-sm font-medium text-[#19d3a2]">
-                    Выполнено {personalMetrics.completed} из {personalMetrics.total}
-                  </div>
-                }
-              />
-
-              <StatCard
-                title="В работе"
-                value={`${personalMetrics.inProgress}`}
-                subtitle="Количество активных задач на текущий момент"
-                accent="#a78bfa"
-                progress={Math.min((personalMetrics.inProgress / Math.max(personalMetrics.total, 1)) * 100 * 2, 100)}
-              />
-
-              <StatCard
-                title="Просрочено"
-                value={`${personalMetrics.overdue}`}
-                subtitle="Личные задачи с нарушенным сроком"
-                accent="#ff6b6b"
-                progress={Math.min((personalMetrics.overdue / Math.max(personalMetrics.total, 1)) * 100 * 4, 100)}
-              />
-
-              <StatCard
-                title="Ср. скорость"
-                value={formatDays(personalMetrics.avgDurationDays)}
-                subtitle="Среднее время выполнения задачи"
-                accent="#19d3a2"
-                progress={personalMetrics.speedScore}
-                extra={
-                  <div className="mt-2 text-sm font-medium text-[#19d3a2]">
-                    Скорость: {personalMetrics.speedScore} / 100
-                  </div>
-                }
-              />
-            </section>
-
-            <section className="mt-8 grid grid-cols-1 gap-6 2xl:grid-cols-[1.7fr_0.8fr]">
-              <div className="rounded-[32px] border border-white/10 bg-[#141414] p-7 shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
-                    <h2 className="text-4xl font-semibold text-white">
-                      Личная динамика
-                    </h2>
-                    <p className="mt-2 text-lg text-white/55">
-                      Активность по вашим задачам за последние 8 недель
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap gap-3">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/80">
-                      <span className="h-2.5 w-2.5 rounded-full bg-[#1da1ff]" />
-                      Выполнено
-                    </div>
-                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/80">
-                      <span className="h-2.5 w-2.5 rounded-full bg-[#cfc9ff]" />
-                      В работе
-                    </div>
-                  </div>
-                </div>
-
-                <ActivityChart data={personalActivity} />
-              </div>
-
-              <div className="rounded-[32px] bg-[#0b57f0] p-7 shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
-                <h2 className="text-4xl font-semibold text-white">
-                  Ваш рейтинг
-                </h2>
-
-                <div className="mt-8">
-                  <RatingCircle value={personalMetrics.rating} />
-                </div>
-
-                <div className="mt-8 grid grid-cols-3 gap-4 border-t border-white/15 pt-6">
-                  <div className="text-center">
-                    <div className="text-xs uppercase tracking-[0.16em] text-white/65">
-                      Вклад
-                    </div>
-                    <div className="mt-2 text-4xl font-semibold text-white">
-                      {personalMetrics.contributionScore}
-                    </div>
-                  </div>
-
-                  <div className="text-center">
-                    <div className="text-xs uppercase tracking-[0.16em] text-white/65">
-                      Скорость
-                    </div>
-                    <div className="mt-2 text-4xl font-semibold text-white">
-                      {personalMetrics.speedScore}
-                    </div>
-                  </div>
-
-                  <div className="text-center">
-                    <div className="text-xs uppercase tracking-[0.16em] text-white/65">
-                      Надёжность
-                    </div>
-                    <div className="mt-2 text-4xl font-semibold text-white">
-                      {personalMetrics.reliabilityScore}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="mt-8 grid grid-cols-1 gap-6 2xl:grid-cols-[0.95fr_1.35fr]">
-              <div className="rounded-[32px] border border-white/10 bg-[#141414] p-7 shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
-                <h2 className="text-4xl font-semibold text-white">
-                  Распределение задач
-                </h2>
-
-                <div className="mt-8 space-y-7">
-                  <DistributionRow
-                    label="Выполнено"
-                    value={personalMetrics.completed}
-                    color="#1da1ff"
-                    max={personalDistributionMax}
-                  />
-                  <DistributionRow
-                    label="В работе"
-                    value={personalMetrics.inProgress}
-                    color="#8b5cf6"
-                    max={personalDistributionMax}
-                  />
-                  <DistributionRow
-                    label="Заблокировано"
-                    value={personalMetrics.blocked}
-                    color="#ff6b6b"
-                    max={personalDistributionMax}
-                  />
-                </div>
-              </div>
-
-              <div className="rounded-[32px] border border-white/10 bg-[#141414] p-7 shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
-                <h2 className="text-4xl font-semibold text-white">
-                  Зоны роста
-                </h2>
-                <InsightList items={personalInsights} />
-              </div>
-            </section>
-          </>
+          <div className="rounded-[30px] border border-white/10 bg-[#141414] p-10 text-lg text-white/70">
+            Аналитические данные пока недоступны.
+          </div>
         )}
       </main>
     </div>

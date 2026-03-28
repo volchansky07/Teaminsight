@@ -7,11 +7,20 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateTaskReportDto } from './dto/create-task-report.dto';
 import { ApproveTaskReportDto } from './dto/approve-task-report.dto';
 import { RejectTaskReportDto } from './dto/reject-task-report.dto';
-import { TaskReportStatus, TaskReportType } from '@prisma/client';
+import {
+  NotificationEntityType,
+  NotificationType,
+  TaskReportStatus,
+  TaskReportType,
+} from '@prisma/client';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class TaskReportService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   private async validateReportSubmission(
     userId: string,
@@ -72,22 +81,115 @@ export class TaskReportService {
     return task;
   }
 
-  async createReport(userId: string, dto: CreateTaskReportDto) {
-    await this.validateReportSubmission(userId, dto.taskId, dto.reportType);
+  private async notifyProjectManagersAboutSubmittedReport(params: {
+    projectId: string;
+    reportId: string;
+    taskTitle: string;
+    authorId: string;
+    authorFullName: string;
+  }) {
+    const managers = await this.prisma.projectMember.findMany({
+      where: {
+        projectId: params.projectId,
+        roleInProject: {
+          in: ['OWNER', 'MANAGER'],
+        },
+        userId: {
+          not: params.authorId,
+        },
+      },
+      select: {
+        userId: true,
+      },
+    });
 
-    return this.prisma.taskReport.create({
+    if (!managers.length) return;
+
+    await this.notificationService.createManyNotifications(
+      managers.map((manager) => ({
+        userId: manager.userId,
+        title: 'Новый отчёт по задаче',
+        message: `Сотрудник ${params.authorFullName} отправил отчёт по задаче «${params.taskTitle}».`,
+        type: NotificationType.REPORT_SUBMITTED,
+        entityType: NotificationEntityType.REPORT,
+        entityId: params.reportId,
+        projectId: params.projectId,
+      })),
+    );
+  }
+
+  private async notifyReportAuthor(params: {
+    userId: string;
+    projectId: string;
+    reportId: string;
+    taskTitle: string;
+    type: 'REPORT_APPROVED' | 'REPORT_REJECTED';
+    managerComment?: string | null;
+  }) {
+    const title =
+      params.type === NotificationType.REPORT_APPROVED
+        ? 'Отчёт принят'
+        : 'Отчёт отклонён';
+
+    const baseMessage =
+      params.type === NotificationType.REPORT_APPROVED
+        ? `Ваш отчёт по задаче «${params.taskTitle}» был принят руководителем.`
+        : `Ваш отчёт по задаче «${params.taskTitle}» был отклонён руководителем.`;
+
+    const commentPart =
+      params.managerComment && params.managerComment.trim()
+        ? ` Комментарий: ${params.managerComment.trim()}`
+        : '';
+
+    await this.notificationService.createNotification({
+      userId: params.userId,
+      title,
+      message: `${baseMessage}${commentPart}`,
+      type: params.type,
+      entityType: NotificationEntityType.REPORT,
+      entityId: params.reportId,
+      projectId: params.projectId,
+    });
+  }
+
+  async createReport(userId: string, dto: CreateTaskReportDto) {
+    const task = await this.validateReportSubmission(
+      userId,
+      dto.taskId,
+      dto.reportType,
+    );
+
+    const author = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!author) {
+      throw new NotFoundException('User not found');
+    }
+
+    const createdReport = await this.prisma.taskReport.create({
       data: {
         taskId: dto.taskId,
         authorId: userId,
         reportType: dto.reportType,
-        content: dto.content,
+        content: dto.content ?? null,
         status: TaskReportStatus.SUBMITTED,
       },
       include: {
-        author: true,
         task: true,
+        author: true,
       },
     });
+
+    await this.notifyProjectManagersAboutSubmittedReport({
+      projectId: task.projectId,
+      reportId: createdReport.id,
+      taskTitle: task.title,
+      authorId: author.id,
+      authorFullName: author.fullName,
+    });
+
+    return createdReport;
   }
 
   async createFileReport(
@@ -100,11 +202,19 @@ export class TaskReportService {
       throw new ForbiddenException('File is required');
     }
 
-    await this.validateReportSubmission(userId, taskId, reportType);
+    const task = await this.validateReportSubmission(userId, taskId, reportType);
+
+    const author = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!author) {
+      throw new NotFoundException('User not found');
+    }
 
     const fileUrl = `/uploads/task-reports/${file.filename}`;
 
-    return this.prisma.taskReport.create({
+    const createdReport = await this.prisma.taskReport.create({
       data: {
         taskId,
         authorId: userId,
@@ -120,6 +230,16 @@ export class TaskReportService {
         task: true,
       },
     });
+
+    await this.notifyProjectManagersAboutSubmittedReport({
+      projectId: task.projectId,
+      reportId: createdReport.id,
+      taskTitle: task.title,
+      authorId: author.id,
+      authorFullName: author.fullName,
+    });
+
+    return createdReport;
   }
 
   async getTaskReports(taskId: string, userId: string) {
@@ -151,6 +271,7 @@ export class TaskReportService {
           select: {
             id: true,
             title: true,
+            projectId: true,
           },
         },
         author: {
@@ -175,25 +296,26 @@ export class TaskReportService {
 
   async approveReport(
     reportId: string,
-    userId: string,
+    managerId: string,
     dto: ApproveTaskReportDto,
   ) {
     const report = await this.prisma.taskReport.findUnique({
       where: { id: reportId },
       include: {
         task: true,
+        author: true,
       },
     });
 
     if (!report) {
-      throw new NotFoundException('Task report not found');
+      throw new NotFoundException('Report not found');
     }
 
     const membership = await this.prisma.projectMember.findUnique({
       where: {
         projectId_userId: {
           projectId: report.task.projectId,
-          userId,
+          userId: managerId,
         },
       },
     });
@@ -206,13 +328,11 @@ export class TaskReportService {
       membership.roleInProject !== 'OWNER' &&
       membership.roleInProject !== 'MANAGER'
     ) {
-      throw new ForbiddenException('Only managers can approve reports');
+      throw new ForbiddenException('Only manager can approve reports');
     }
 
     const doneStatus = await this.prisma.taskStatus.findFirst({
-      where: {
-        name: 'Done',
-      },
+      where: { name: 'Done' },
     });
 
     if (!doneStatus) {
@@ -223,14 +343,13 @@ export class TaskReportService {
       where: { id: reportId },
       data: {
         status: TaskReportStatus.APPROVED,
-        managerComment: dto.managerComment,
-        reviewedById: userId,
+        managerComment: dto.managerComment ?? 'Отчёт принят.',
         reviewedAt: new Date(),
+        reviewedById: managerId,
       },
       include: {
-        author: true,
-        reviewedBy: true,
         task: true,
+        author: true,
       },
     });
 
@@ -238,8 +357,17 @@ export class TaskReportService {
       where: { id: report.taskId },
       data: {
         statusId: doneStatus.id,
-        completedAt: report.task.completedAt ?? new Date(),
+        completedAt: new Date(),
       },
+    });
+
+    await this.notifyReportAuthor({
+      userId: report.authorId,
+      projectId: report.task.projectId,
+      reportId: report.id,
+      taskTitle: report.task.title,
+      type: 'REPORT_APPROVED',
+      managerComment: dto.managerComment ?? 'Отчёт принят.',
     });
 
     return updatedReport;
@@ -247,25 +375,26 @@ export class TaskReportService {
 
   async rejectReport(
     reportId: string,
-    userId: string,
+    managerId: string,
     dto: RejectTaskReportDto,
   ) {
     const report = await this.prisma.taskReport.findUnique({
       where: { id: reportId },
       include: {
         task: true,
+        author: true,
       },
     });
 
     if (!report) {
-      throw new NotFoundException('Task report not found');
+      throw new NotFoundException('Report not found');
     }
 
     const membership = await this.prisma.projectMember.findUnique({
       where: {
         projectId_userId: {
           projectId: report.task.projectId,
-          userId,
+          userId: managerId,
         },
       },
     });
@@ -278,22 +407,38 @@ export class TaskReportService {
       membership.roleInProject !== 'OWNER' &&
       membership.roleInProject !== 'MANAGER'
     ) {
-      throw new ForbiddenException('Only managers can reject reports');
+      throw new ForbiddenException('Only manager can reject reports');
     }
 
-    return this.prisma.taskReport.update({
+    if (!dto.managerComment?.trim()) {
+      throw new ForbiddenException(
+        'Manager comment is required when rejecting report',
+      );
+    }
+
+    const updatedReport = await this.prisma.taskReport.update({
       where: { id: reportId },
       data: {
         status: TaskReportStatus.REJECTED,
-        managerComment: dto.managerComment,
-        reviewedById: userId,
+        managerComment: dto.managerComment.trim(),
         reviewedAt: new Date(),
+        reviewedById: managerId,
       },
       include: {
-        author: true,
-        reviewedBy: true,
         task: true,
+        author: true,
       },
     });
+
+    await this.notifyReportAuthor({
+      userId: report.authorId,
+      projectId: report.task.projectId,
+      reportId: report.id,
+      taskTitle: report.task.title,
+      type: NotificationType.REPORT_REJECTED,
+      managerComment: dto.managerComment.trim(),
+    });
+
+    return updatedReport;
   }
 }

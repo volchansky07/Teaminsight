@@ -3,7 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { NotificationEntityType, NotificationType } from '@prisma/client';
+import {
+  NotificationEntityType,
+  NotificationType,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 interface CreateNotificationParams {
@@ -14,6 +18,8 @@ interface CreateNotificationParams {
   entityType?: NotificationEntityType;
   entityId?: string;
   projectId?: string;
+  actionUrl?: string;
+  meta?: Prisma.InputJsonValue;
 }
 
 @Injectable()
@@ -30,6 +36,8 @@ export class NotificationService {
         entityType: params.entityType,
         entityId: params.entityId,
         projectId: params.projectId,
+        actionUrl: params.actionUrl,
+        meta: params.meta,
       },
     });
   }
@@ -46,6 +54,8 @@ export class NotificationService {
         entityType: item.entityType,
         entityId: item.entityId,
         projectId: item.projectId,
+        actionUrl: item.actionUrl,
+        meta: item.meta,
       })),
     });
   }

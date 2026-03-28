@@ -10,11 +10,16 @@ import { ProjectModule } from './project/project.module';
 import { TaskModule } from './task/task.module';
 import { TaskReportModule } from './task-report/task-report.module';
 import { NotificationModule } from './notification/notification.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
     PrismaModule,
     OrganizationModule,
+    AnalyticsModule,
+    ScheduleModule.forRoot(),
+
     RoleModule,
     UserModule,
     AuthModule,

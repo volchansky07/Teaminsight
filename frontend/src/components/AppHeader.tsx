@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import api from '@/services/api';
 import { usePathname, useRouter } from 'next/navigation';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 interface AppHeaderProps {
   projectId?: string;
@@ -18,16 +19,25 @@ export default function AppHeader({
   const pathname = usePathname();
   const router = useRouter();
 
-  const isInsideProject = useMemo(() => {
-    return !!projectId || /^\/projects\/[^/]+/.test(pathname);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+
+  const resolvedProjectId = useMemo(() => {
+    if (projectId) return projectId;
+
+    const match = pathname.match(/^\/projects\/([^/]+)/);
+    return match?.[1] ?? undefined;
   }, [projectId, pathname]);
+
+  const isInsideProject = useMemo(() => {
+    return !!resolvedProjectId;
+  }, [resolvedProjectId]);
 
   const canSeeMembers = useMemo(() => {
     return true;
   }, []);
 
   const navItems = useMemo(() => {
-    if (!isInsideProject || !projectId) {
+    if (!isInsideProject || !resolvedProjectId) {
       return [
         {
           label: 'Проекты',
@@ -45,35 +55,55 @@ export default function AppHeader({
       },
       {
         label: 'Панель проекта',
-        href: `/projects/${projectId}/dashboard`,
-        active: pathname === `/projects/${projectId}/dashboard`,
+        href: `/projects/${resolvedProjectId}/dashboard`,
+        active: pathname === `/projects/${resolvedProjectId}/dashboard`,
       },
       {
         label: 'Аналитика',
-        href: `/projects/${projectId}/analytics`,
-        active: pathname === `/projects/${projectId}/analytics`,
+        href: `/projects/${resolvedProjectId}/analytics`,
+        active: pathname === `/projects/${resolvedProjectId}/analytics`,
       },
       {
         label: 'Отчёты',
-        href: `/projects/${projectId}/reports`,
-        active: pathname === `/projects/${projectId}/reports`,
+        href: `/projects/${resolvedProjectId}/reports`,
+        active: pathname === `/projects/${resolvedProjectId}/reports`,
       },
       ...(canSeeMembers
         ? [
             {
               label: 'Участники',
-              href: `/projects/${projectId}/members`,
-              active: pathname === `/projects/${projectId}/members`,
+              href: `/projects/${resolvedProjectId}/members`,
+              active: pathname === `/projects/${resolvedProjectId}/members`,
             },
           ]
         : []),
       {
         label: 'Архив',
-        href: `/projects/${projectId}/archive`,
-        active: pathname === `/projects/${projectId}/archive`,
+        href: `/projects/${resolvedProjectId}/archive`,
+        active: pathname === `/projects/${resolvedProjectId}/archive`,
       },
     ];
-  }, [isInsideProject, projectId, pathname, canSeeMembers]);
+  }, [isInsideProject, resolvedProjectId, pathname, canSeeMembers]);
+
+  const loadUnreadNotificationsCount = async () => {
+    try {
+      const res = await api.get('/notifications/my/unread-count');
+      setUnreadNotificationsCount(res.data?.count ?? 0);
+    } catch (error) {
+      console.error('Ошибка загрузки количества уведомлений:', error);
+      setUnreadNotificationsCount(0);
+    }
+  };
+
+  useEffect(() => {
+    loadUnreadNotificationsCount();
+
+    const interval = window.setInterval(() => {
+      loadUnreadNotificationsCount();
+    }, 30000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -92,13 +122,13 @@ export default function AppHeader({
           </div>
         </Link>
 
-        <nav className="flex items-center gap-6">
+        <nav className="flex items-center gap-5">
           {navItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
               className={[
-                'rounded-full px-8 py-4 text-[18px] transition',
+                'rounded-full px-8 py-4 text-[18px] whitespace-nowrap transition',
                 item.active
                   ? 'bg-white text-black'
                   : 'text-white/70 hover:text-white',
@@ -109,12 +139,29 @@ export default function AppHeader({
           ))}
         </nav>
 
-        <button
-          onClick={handleLogout}
-          className="rounded-2xl border border-white/10 bg-[#121212] px-8 py-4 text-[18px] text-white transition hover:bg-[#1a1a1a]"
-        >
-          Выйти
-        </button>
+        <div className="flex items-center gap-3">
+          <Link
+            href={resolvedProjectId ? `/projects/${resolvedProjectId}/notifications` : '/projects'}
+            className="relative flex h-[58px] w-[58px] items-center justify-center rounded-2xl border border-white/10 bg-[#121212] text-white transition hover:bg-[#1a1a1a]"
+            aria-label="Открыть уведомления"
+            title="Уведомления"
+          >
+            <span className="text-[22px]">🔔</span>
+
+            {unreadNotificationsCount > 0 ? (
+              <span className="absolute -right-1.5 -top-1.5 flex min-h-[24px] min-w-[24px] items-center justify-center rounded-full border border-violet-900/50 bg-violet-600 px-1.5 text-[11px] font-semibold leading-none text-white shadow-[0_6px_20px_rgba(124,58,237,0.45)]">
+                {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
+              </span>
+            ) : null}
+          </Link>
+
+          <button
+            onClick={handleLogout}
+            className="rounded-2xl border border-white/10 bg-[#121212] px-8 py-4 text-[18px] text-white transition hover:bg-[#1a1a1a]"
+          >
+            Выйти
+          </button>
+        </div>
       </div>
     </header>
   );
