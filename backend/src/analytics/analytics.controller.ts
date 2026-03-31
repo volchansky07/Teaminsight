@@ -35,8 +35,13 @@ export class AnalyticsController {
     );
   }
 
-  @Get('projects/:projectId/monthly')
-  getMonthlySummary(@Param('projectId') projectId: string, @Req() req) {
-    return this.analyticsService.getMonthlySummary(projectId, req.user.sub);
+  @Get('projects/:projectId/monthly/team')
+  getMonthlyTeamSummary(@Param('projectId') projectId: string, @Req() req) {
+    return this.analyticsService.getMonthlyTeamSummary(projectId, req.user.sub);
+  }
+
+  @Get('projects/:projectId/monthly/personal')
+  getMonthlyPersonalSummary(@Param('projectId') projectId: string, @Req() req) {
+    return this.analyticsService.getMonthlyPersonalSummary(projectId, req.user.sub);
   }
 }

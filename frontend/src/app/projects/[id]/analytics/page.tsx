@@ -23,6 +23,7 @@ import InlineNotice from '@/components/InlineNotice';
 
 type ProjectRole = 'OWNER' | 'MANAGER' | 'MEMBER';
 type AnalyticsPeriod = '7d' | '14d' | '30d';
+type TrendDirection = 'up' | 'down' | 'same';
 
 interface NoticeState {
   type: 'success' | 'error';
@@ -70,6 +71,17 @@ interface MonthlyItem {
   overdueTasks: number;
 }
 
+interface MetricTrend {
+  delta: number;
+  direction: TrendDirection;
+}
+
+interface SampleInfo {
+  tasksCount: number;
+  reportsCount: number;
+  isSmall: boolean;
+}
+
 interface TeamAnalyticsResponse {
   period: AnalyticsPeriod;
   summary: {
@@ -79,6 +91,13 @@ interface TeamAnalyticsResponse {
     overdueRate: number;
     reportQuality: number;
     completedTasksCount: number;
+    trends: {
+      teamKpi: MetricTrend;
+      onTimeRate: MetricTrend;
+      overdueRate: MetricTrend;
+      reportQuality: MetricTrend;
+    };
+    sample: SampleInfo;
   };
   charts: {
     teamCompletedTrend: TrendPoint[];
@@ -101,6 +120,13 @@ interface PersonalAnalyticsResponse {
     activeTasksCount: number;
     activeComplexityTotal: number;
     activeComplexityAverage: number;
+    trends: {
+      personalKpi: MetricTrend;
+      onTimeRate: MetricTrend;
+      overdueRate: MetricTrend;
+      reportQuality: MetricTrend;
+    };
+    sample: SampleInfo;
   };
   charts: {
     completedTasksTrend: TrendPoint[];
@@ -169,25 +195,78 @@ function riskClass(level: 'low' | 'medium' | 'high') {
   }
 }
 
+function shortenName(name: string, max = 18) {
+  if (!name) return '—';
+  return name.length > max ? `${name.slice(0, max - 3)}...` : name;
+}
+
+function getTrendText(delta: number, direction: TrendDirection) {
+  if (direction === 'up') return `↑ +${Math.abs(delta)}`;
+  if (direction === 'down') return `↓ -${Math.abs(delta)}`;
+  return '→ 0';
+}
+
+function getTrendClass(
+  direction: TrendDirection,
+  reverseMeaning = false,
+): string {
+  if (direction === 'same') return 'text-white/45';
+
+  if (reverseMeaning) {
+    return direction === 'up' ? 'text-red-300' : 'text-emerald-300';
+  }
+
+  return direction === 'up' ? 'text-emerald-300' : 'text-red-300';
+}
+
 function AnalyticsCard({
   title,
   value,
   description,
   accentClass = 'text-white',
+  delta,
+  direction,
+  reverseTrendMeaning = false,
+  showSampleWarning = false,
 }: {
   title: string;
   value: string;
   description: string;
   accentClass?: string;
+  delta?: number;
+  direction?: TrendDirection;
+  reverseTrendMeaning?: boolean;
+  showSampleWarning?: boolean;
 }) {
   return (
-    <div className="rounded-[28px] border border-white/10 bg-[#141414] p-6 shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
+    <div className="rounded-[28px] border border-white/10 bg-[#141414] p-6 shadow-[0_10px_30px_rgba(0,0,0,0.35)] transition hover:border-white/15 hover:translate-y-[-2px]">
       <p className="text-[12px] uppercase tracking-[0.22em] text-white/45">
         {title}
       </p>
+
       <div className={`mt-4 text-5xl font-semibold leading-none ${accentClass}`}>
         {value}
       </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        {typeof delta === 'number' && direction ? (
+          <span
+            className={`text-sm font-medium ${getTrendClass(
+              direction,
+              reverseTrendMeaning,
+            )}`}
+          >
+            {getTrendText(delta, direction)}
+          </span>
+        ) : null}
+
+        {showSampleWarning ? (
+          <span className="rounded-full border border-amber-900/40 bg-amber-950/20 px-2.5 py-1 text-[11px] text-amber-300">
+            Небольшая выборка
+          </span>
+        ) : null}
+      </div>
+
       <p className="mt-4 text-sm leading-relaxed text-white/55">{description}</p>
     </div>
   );
@@ -266,31 +345,44 @@ function TeamAnalyticsView({
           value={formatPercent(data.summary.teamKpi)}
           description="Интегральная оценка эффективности команды с учётом сроков, завершения задач, качества отчётов и дисциплины."
           accentClass="text-white"
+          delta={data.summary.trends.teamKpi.delta}
+          direction={data.summary.trends.teamKpi.direction}
+          showSampleWarning={data.summary.sample.isSmall}
         />
         <AnalyticsCard
           title="Выполнение в срок"
           value={formatPercent(data.summary.onTimeRate)}
           description="Доля задач команды, завершённых в рамках установленного дедлайна."
           accentClass="text-emerald-300"
+          delta={data.summary.trends.onTimeRate.delta}
+          direction={data.summary.trends.onTimeRate.direction}
+          showSampleWarning={data.summary.sample.isSmall}
         />
         <AnalyticsCard
           title="Просрочки"
           value={formatPercent(data.summary.overdueRate)}
           description="Доля задач периода, по которым наблюдается просрочка или факт завершения позже дедлайна."
           accentClass="text-amber-300"
+          delta={data.summary.trends.overdueRate.delta}
+          direction={data.summary.trends.overdueRate.direction}
+          reverseTrendMeaning
+          showSampleWarning={data.summary.sample.isSmall}
         />
         <AnalyticsCard
           title="Качество отчётов"
           value={formatPercent(data.summary.reportQuality)}
           description="Процент отчётов, которые были приняты с первого раза без возврата на доработку."
           accentClass="text-sky-300"
+          delta={data.summary.trends.reportQuality.delta}
+          direction={data.summary.trends.reportQuality.direction}
+          showSampleWarning={data.summary.sample.isSmall}
         />
       </section>
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[2fr_1fr]">
         <SectionCard
           title="Темп выполнения команды"
-          subtitle="Динамика завершения задач по дням в выбранном периоде."
+          subtitle={`Динамика завершения задач по дням за ${data.period === '7d' ? 'последние 7 дней' : data.period === '14d' ? 'последние 14 дней' : 'последние 30 дней'}.`}
         >
           {data.charts.teamCompletedTrend.length === 0 ? (
             <EmptyState text="Недостаточно данных для построения графика." />
@@ -325,7 +417,7 @@ function TeamAnalyticsView({
 
         <SectionCard
           title="Структура задач"
-          subtitle="Распределение задач команды по основным статусам."
+          subtitle="Распределение задач команды по основным статусам в текущем периоде."
         >
           {data.charts.statusDistribution.every((item) => item.value === 0) ? (
             <EmptyState text="Нет данных по статусам задач." />
@@ -370,7 +462,7 @@ function TeamAnalyticsView({
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.7fr_1fr]">
         <SectionCard
           title="Нагрузка по участникам"
-          subtitle="Сравнение активной нагрузки и темпа выполнения по каждому сотруднику."
+          subtitle="Сравнение активной нагрузки, завершения задач и сложности по каждому сотруднику."
         >
           {data.charts.workloadByMembers.length === 0 ? (
             <EmptyState text="В проекте пока нет данных по загрузке участников." />
@@ -387,11 +479,14 @@ function TeamAnalyticsView({
                   <YAxis
                     type="category"
                     dataKey="fullName"
-                    width={160}
+                    width={170}
+                    tickFormatter={(value) => shortenName(value)}
                     stroke="rgba(255,255,255,0.35)"
                   />
                   <Tooltip
                     cursor={false}
+                    formatter={(value: number, name: string) => [value, name]}
+                    labelFormatter={(label) => `Сотрудник: ${label}`}
                     contentStyle={{
                       background: '#111',
                       border: '1px solid rgba(255,255,255,0.08)',
@@ -400,9 +495,24 @@ function TeamAnalyticsView({
                     }}
                   />
                   <Legend />
-                  <Bar dataKey="activeTasks" name="Активные задачи" fill="#38bdf8" radius={[0, 8, 8, 0]} />
-                  <Bar dataKey="completedTasks" name="Завершённые" fill="#10b981" radius={[0, 8, 8, 0]} />
-                  <Bar dataKey="complexityPoints" name="Баллы сложности" fill="#a855f7" radius={[0, 8, 8, 0]} />
+                  <Bar
+                    dataKey="activeTasks"
+                    name="Активные задачи"
+                    fill="#38bdf8"
+                    radius={[0, 8, 8, 0]}
+                  />
+                  <Bar
+                    dataKey="completedTasks"
+                    name="Завершённые"
+                    fill="#10b981"
+                    radius={[0, 8, 8, 0]}
+                  />
+                  <Bar
+                    dataKey="complexityPoints"
+                    name="Баллы сложности"
+                    fill="#a855f7"
+                    radius={[0, 8, 8, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -513,9 +623,24 @@ function TeamAnalyticsView({
                     }}
                   />
                   <Legend />
-                  <Bar dataKey="completedTasks" name="Завершённые задачи" fill="#10b981" radius={[8, 8, 0, 0]} />
-                  <Bar dataKey="approvedReports" name="Принятые отчёты" fill="#38bdf8" radius={[8, 8, 0, 0]} />
-                  <Bar dataKey="overdueTasks" name="Просрочки" fill="#ef4444" radius={[8, 8, 0, 0]} />
+                  <Bar
+                    dataKey="completedTasks"
+                    name="Завершённые задачи"
+                    fill="#10b981"
+                    radius={[8, 8, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="approvedReports"
+                    name="Принятые отчёты"
+                    fill="#38bdf8"
+                    radius={[8, 8, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="overdueTasks"
+                    name="Просрочки"
+                    fill="#ef4444"
+                    radius={[8, 8, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -561,31 +686,44 @@ function PersonalAnalyticsView({
           value={formatPercent(data.summary.personalKpi)}
           description="Интегральная оценка вашей эффективности с учётом сроков, выполнения задач, качества отчётов и дисциплины."
           accentClass="text-white"
+          delta={data.summary.trends.personalKpi.delta}
+          direction={data.summary.trends.personalKpi.direction}
+          showSampleWarning={data.summary.sample.isSmall}
         />
         <AnalyticsCard
           title="Выполнение в срок"
           value={formatPercent(data.summary.onTimeRate)}
           description="Доля ваших задач, завершённых в рамках установленного дедлайна."
           accentClass="text-emerald-300"
+          delta={data.summary.trends.onTimeRate.delta}
+          direction={data.summary.trends.onTimeRate.direction}
+          showSampleWarning={data.summary.sample.isSmall}
         />
         <AnalyticsCard
           title="Просрочки"
           value={formatPercent(data.summary.overdueRate)}
           description="Процент задач, по которым зафиксировано превышение срока выполнения."
           accentClass="text-amber-300"
+          delta={data.summary.trends.overdueRate.delta}
+          direction={data.summary.trends.overdueRate.direction}
+          reverseTrendMeaning
+          showSampleWarning={data.summary.sample.isSmall}
         />
         <AnalyticsCard
           title="Качество отчётов"
           value={formatPercent(data.summary.reportQuality)}
           description="Процент отчётов, принятых с первого раза без возврата на доработку."
           accentClass="text-sky-300"
+          delta={data.summary.trends.reportQuality.delta}
+          direction={data.summary.trends.reportQuality.direction}
+          showSampleWarning={data.summary.sample.isSmall}
         />
       </section>
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[2fr_1fr]">
         <SectionCard
           title="Динамика завершения задач"
-          subtitle="Количество ваших завершённых задач по дням в выбранном периоде."
+          subtitle={`Количество ваших завершённых задач по дням за ${data.period === '7d' ? 'последние 7 дней' : data.period === '14d' ? 'последние 14 дней' : 'последние 30 дней'}.`}
         >
           {data.charts.completedTasksTrend.length === 0 ? (
             <EmptyState text="Недостаточно данных для построения графика." />
@@ -620,7 +758,7 @@ function PersonalAnalyticsView({
 
         <SectionCard
           title="Структура задач"
-          subtitle="Распределение ваших задач по статусам."
+          subtitle="Распределение ваших задач по статусам в текущем периоде."
         >
           {data.charts.statusDistribution.every((item) => item.value === 0) ? (
             <EmptyState text="Нет данных по структуре задач." />
@@ -713,9 +851,24 @@ function PersonalAnalyticsView({
                     }}
                   />
                   <Legend />
-                  <Bar dataKey="completedTasks" name="Завершённые задачи" fill="#10b981" radius={[8, 8, 0, 0]} />
-                  <Bar dataKey="approvedReports" name="Принятые отчёты" fill="#38bdf8" radius={[8, 8, 0, 0]} />
-                  <Bar dataKey="overdueTasks" name="Просрочки" fill="#ef4444" radius={[8, 8, 0, 0]} />
+                  <Bar
+                    dataKey="completedTasks"
+                    name="Завершённые задачи"
+                    fill="#10b981"
+                    radius={[8, 8, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="approvedReports"
+                    name="Принятые отчёты"
+                    fill="#38bdf8"
+                    radius={[8, 8, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="overdueTasks"
+                    name="Просрочки"
+                    fill="#ef4444"
+                    radius={[8, 8, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -754,10 +907,12 @@ export default function ProjectAnalyticsPage() {
   const [projectRole, setProjectRole] = useState<ProjectRole | null>(null);
 
   const [teamData, setTeamData] = useState<TeamAnalyticsResponse | null>(null);
-  const [personalData, setPersonalData] = useState<PersonalAnalyticsResponse | null>(null);
+  const [personalData, setPersonalData] =
+    useState<PersonalAnalyticsResponse | null>(null);
   const [monthlyData, setMonthlyData] = useState<MonthlyItem[]>([]);
 
   const [loading, setLoading] = useState(true);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [notice, setNotice] = useState<NoticeState | null>(null);
 
   const isManagerView = useMemo(() => {
@@ -789,16 +944,26 @@ export default function ProjectAnalyticsPage() {
     return currentMember.roleInProject;
   };
 
-  const loadAnalytics = async (resolvedRole?: ProjectRole | null) => {
+  const loadAnalytics = async (
+    resolvedRole?: ProjectRole | null,
+    options?: { initial?: boolean },
+  ) => {
     const role = resolvedRole ?? projectRole;
     if (!role) return;
 
-    setLoading(true);
+    if (options?.initial) {
+      setLoading(true);
+    } else {
+      setAnalyticsLoading(true);
+    }
+
     setNotice(null);
 
     try {
       const [monthlyRes, analyticsRes] = await Promise.all([
-        api.get(`/analytics/projects/${projectId}/monthly`),
+        role === 'OWNER' || role === 'MANAGER'
+          ? api.get(`/analytics/projects/${projectId}/monthly/team`)
+          : api.get(`/analytics/projects/${projectId}/monthly/personal`),
         role === 'OWNER' || role === 'MANAGER'
           ? api.get(`/analytics/projects/${projectId}/team?period=${period}`)
           : api.get(`/analytics/projects/${projectId}/personal?period=${period}`),
@@ -821,6 +986,7 @@ export default function ProjectAnalyticsPage() {
       });
     } finally {
       setLoading(false);
+      setAnalyticsLoading(false);
     }
   };
 
@@ -828,12 +994,13 @@ export default function ProjectAnalyticsPage() {
     const bootstrap = async () => {
       try {
         const role = await loadProjectRole();
-        await loadAnalytics(role);
+        await loadAnalytics(role, { initial: true });
       } catch (error) {
         console.error('Ошибка инициализации аналитики:', error);
         setNotice({
           type: 'error',
-          message: 'Не удалось определить роль пользователя или загрузить аналитику.',
+          message:
+            'Не удалось определить роль пользователя или загрузить аналитику.',
         });
         setLoading(false);
       }
@@ -845,7 +1012,7 @@ export default function ProjectAnalyticsPage() {
 
   useEffect(() => {
     if (!projectRole) return;
-    loadAnalytics();
+    loadAnalytics(undefined, { initial: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period]);
 
@@ -878,13 +1045,21 @@ export default function ProjectAnalyticsPage() {
           <div className="rounded-[30px] border border-white/10 bg-[#141414] p-10 text-lg text-white/70">
             Загрузка аналитики...
           </div>
-        ) : isManagerView && teamData ? (
-          <TeamAnalyticsView data={teamData} monthly={monthlyData} />
-        ) : personalData ? (
-          <PersonalAnalyticsView data={personalData} monthly={monthlyData} />
         ) : (
-          <div className="rounded-[30px] border border-white/10 bg-[#141414] p-10 text-lg text-white/70">
-            Аналитические данные пока недоступны.
+          <div className="relative">
+            {analyticsLoading ? (
+              <div className="pointer-events-none absolute inset-0 z-10 rounded-[30px] bg-black/20 backdrop-blur-[1px]" />
+            ) : null}
+
+            {isManagerView && teamData ? (
+              <TeamAnalyticsView data={teamData} monthly={monthlyData} />
+            ) : personalData ? (
+              <PersonalAnalyticsView data={personalData} monthly={monthlyData} />
+            ) : (
+              <div className="rounded-[30px] border border-white/10 bg-[#141414] p-10 text-lg text-white/70">
+                Аналитические данные пока недоступны.
+              </div>
+            )}
           </div>
         )}
       </main>

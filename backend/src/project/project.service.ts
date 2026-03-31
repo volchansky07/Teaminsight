@@ -15,10 +15,23 @@ export class ProjectService {
   async createProject(userId: string, dto: CreateProjectDto) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
+      include: {
+        role: true,
+      },
     });
 
     if (!user) {
-      throw new ForbiddenException('User not found');
+      throw new NotFoundException('User not found');
+    }
+
+    if (!user?.organizationId) {
+      throw new ForbiddenException('User does not belong to an organization');
+    }
+
+    if (user.role.name !== 'OWNER' && user.role.name !== 'MANAGER') {
+      throw new ForbiddenException(
+        'Only organization owners and managers can create projects',
+      );
     }
 
     return this.prisma.project.create({
@@ -27,15 +40,6 @@ export class ProjectService {
         description: dto.description,
         organizationId: user.organizationId,
         ownerId: userId,
-        members: {
-          create: {
-            userId,
-            roleInProject: ProjectRole.OWNER,
-          },
-        },
-      },
-      include: {
-        members: true,
       },
     });
   }

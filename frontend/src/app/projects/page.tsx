@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import api from '@/services/api';
 import AppHeader from '@/components/AppHeader';
 import InlineNotice from '@/components/InlineNotice';
 import ConfirmActionModal from '@/components/ConfirmActionModal';
+import { parseJwt } from '@/utils/auth';
 
 interface Project {
   id: string;
@@ -17,6 +19,8 @@ interface NoticeState {
   type: 'success' | 'error';
   message: string;
 }
+
+type OrganizationRole = 'OWNER' | 'MANAGER' | 'EMPLOYEE' | null;
 
 function ProjectCard({
   project,
@@ -88,6 +92,8 @@ function ProjectCard({
 }
 
 export default function ProjectsPage() {
+  const router = useRouter();
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [creating, setCreating] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -96,16 +102,16 @@ export default function ProjectsPage() {
   const [description, setDescription] = useState('');
   const [notice, setNotice] = useState<NoticeState | null>(null);
 
-  const [currentSystemRole, setCurrentSystemRole] = useState('');
   const [authToken, setAuthToken] = useState('');
+  const [organizationRole, setOrganizationRole] =
+    useState<OrganizationRole>(null);
 
   const [archiveProject, setArchiveProject] = useState<Project | null>(null);
   const [archiveLoading, setArchiveLoading] = useState(false);
 
-  const isAdmin = useMemo(
-    () => currentSystemRole === 'admin',
-    [currentSystemRole],
-  );
+  const isAdmin = useMemo(() => {
+    return organizationRole === 'OWNER' || organizationRole === 'MANAGER';
+  }, [organizationRole]);
 
   const resetProjectsState = () => {
     setProjects([]);
@@ -115,33 +121,75 @@ export default function ProjectsPage() {
     setDescription('');
   };
 
-  const syncAuthFromStorage = () => {
+  useEffect(() => {
     const token = localStorage.getItem('token') || '';
-    setAuthToken(token);
 
     if (!token) {
-      setCurrentSystemRole('');
+      router.replace('/login');
       return;
     }
 
     const payload = parseJwt(token);
-    setCurrentSystemRole(payload?.role ?? '');
-  };
 
-  useEffect(() => {
-    syncAuthFromStorage();
-  }, []);
+    if (!payload) {
+      router.replace('/login');
+      return;
+    }
+
+    if (payload.systemRole === 'SUPER_ADMIN') {
+      router.replace('/admin/dashboard');
+      return;
+    }
+
+    setAuthToken(token);
+
+    if (
+      payload.organizationRole === 'OWNER' ||
+      payload.organizationRole === 'MANAGER' ||
+      payload.organizationRole === 'EMPLOYEE'
+    ) {
+      setOrganizationRole(payload.organizationRole);
+    } else {
+      setOrganizationRole('EMPLOYEE');
+    }
+  }, [router]);
 
   useEffect(() => {
     const handleTokenSync = () => {
-      const newToken = localStorage.getItem('token') || '';
+      const token = localStorage.getItem('token') || '';
 
-      if (newToken !== authToken) {
+      if (!token) {
         resetProjectsState();
-        setAuthToken(newToken);
+        router.replace('/login');
+        return;
+      }
 
-        const payload = parseJwt(newToken);
-        setCurrentSystemRole(payload?.role ?? '');
+      if (token !== authToken) {
+        const payload = parseJwt(token);
+
+        if (!payload) {
+          resetProjectsState();
+          router.replace('/login');
+          return;
+        }
+
+        if (payload.systemRole === 'SUPER_ADMIN') {
+          resetProjectsState();
+          router.replace('/admin/dashboard');
+          return;
+        }
+
+        setAuthToken(token);
+
+        if (
+          payload.organizationRole === 'OWNER' ||
+          payload.organizationRole === 'MANAGER' ||
+          payload.organizationRole === 'EMPLOYEE'
+        ) {
+          setOrganizationRole(payload.organizationRole);
+        } else {
+          setOrganizationRole('EMPLOYEE');
+        }
       }
     };
 
@@ -152,7 +200,7 @@ export default function ProjectsPage() {
       window.removeEventListener('focus', handleTokenSync);
       window.removeEventListener('storage', handleTokenSync);
     };
-  }, [authToken]);
+  }, [authToken, router]);
 
   const loadProjects = async () => {
     try {
@@ -168,9 +216,9 @@ export default function ProjectsPage() {
   };
 
   useEffect(() => {
-    if (!authToken) return;
+    if (!authToken || !organizationRole) return;
     loadProjects();
-  }, [authToken, currentSystemRole]);
+  }, [authToken, organizationRole]);
 
   const resetForm = () => {
     setName('');
@@ -262,11 +310,12 @@ export default function ProjectsPage() {
               РАБОЧЕЕ ПРОСТРАНСТВО
             </p>
             <h1 className="text-6xl font-semibold leading-[0.95] text-white">
-              Мои проекты
+              {isAdmin ? 'Управление проектами' : 'Мои проекты'}
             </h1>
             <p className="mt-4 max-w-[760px] text-xl leading-relaxed text-white/55">
-              Управляйте проектами, переходите в рабочие панели и контролируйте
-              проектную деятельность внутри платформы.
+              {isAdmin
+                ? 'Создавайте проекты, управляйте командами и контролируйте проектную деятельность внутри платформы.'
+                : 'Просматривайте проекты, в которых вы участвуете, и переходите к своим рабочим задачам.'}
             </p>
           </div>
 
@@ -380,7 +429,7 @@ export default function ProjectsPage() {
         title="Архивировать проект"
         description={
           archiveProject
-            ? `Проект «${archiveProject.name}» будет перенесён в архив. Все задачи проекта также будут архивированы.`
+            ? 'Проект «${archiveProject.name}» будет перенесён в архив. Все задачи проекта также будут архивированы.'
             : ''
         }
         confirmText="Архивировать"
@@ -391,16 +440,4 @@ export default function ProjectsPage() {
       />
     </div>
   );
-}
-
-function parseJwt(
-  token: string,
-): { sub?: string; org?: string; role?: string } | null {
-  try {
-    const payload = token.split('.')[1];
-    const decoded = JSON.parse(atob(payload));
-    return decoded;
-  } catch {
-    return null;
-  }
 }

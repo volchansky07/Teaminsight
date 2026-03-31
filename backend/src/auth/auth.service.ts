@@ -2,12 +2,16 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { SystemRole } from '@prisma/client';
 
-type JwtPayload = {
-  sub: string; // userId
-  org: string; // organizationId
-  role: string; // role name
-};
+export interface AppJwtPayload {
+  sub: string;
+  email: string;
+  systemRole: SystemRole;
+  organizationRole?: 'OWNER' | 'MANAGER' | 'EMPLOYEE';
+  org?: string | null;
+  exp?: number;
+}
 
 @Injectable()
 export class AuthService {
@@ -18,38 +22,63 @@ export class AuthService {
 
   async login(email: string, password: string) {
     const user = await this.prisma.user.findUnique({
-      where: { email },
-      include: { role: true },
+      where: { email: email.toLowerCase().trim() },
+      include: {
+        role: true,
+      },
     });
 
-    if (!user || !user.isActive) {
+    if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const ok = await bcrypt.compare(password, user.passwordHash);
-    if (!ok) throw new UnauthorizedException('Invalid credentials');
+    if (!user.isActive) {
+      throw new UnauthorizedException('User is deactivated');
+    }
 
-    const payload: JwtPayload = {
+    const ok = await bcrypt.compare(password, user.passwordHash);
+
+    if (!ok) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const organizationRole =
+      user.role.name === 'OWNER' ||
+      user.role.name === 'MANAGER' ||
+      user.role.name === 'EMPLOYEE'
+        ? user.role.name
+        : undefined;
+
+    const payload: AppJwtPayload = {
       sub: user.id,
+      email: user.email,
+      systemRole: user.SystemRole,
+      organizationRole,
       org: user.organizationId,
-      role: user.role.name,
     };
 
-    const accessToken = await this.jwt.signAsync(payload, {
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        lastLoginAt: new Date(),
+      },
+    });
+
+    const accessToken = await this.jwt.signAsync(payload as any, {
       secret: process.env.JWT_ACCESS_SECRET!,
-      expiresIn: process.env.JWT_ACCESS_EXPIRES_IN as any || '15m',
+      expiresIn: (process.env.JWT_ACCESS_EXPIRES_IN || '15m') as any,
     });
 
-    const refreshToken = await this.jwt.signAsync(payload, {
+    const refreshToken = await this.jwt.signAsync(payload as any, {
       secret: process.env.JWT_REFRESH_SECRET!,
-      expiresIn: process.env.JWT_REFRESH_EXPIRES_IN as any || '7d',
+      expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN || '7d') as any,
     });
 
-    // храним только хеш refresh
     const refreshHash = await bcrypt.hash(refreshToken, 10);
 
-    // срок действия (для удобства контроля)
-    const refreshExp = new Date(Date.now() + this.parseMs(process.env.JWT_REFRESH_EXPIRES_IN || '7d'));
+    const refreshExp = new Date(
+      Date.now() + this.parseMs(process.env.JWT_REFRESH_EXPIRES_IN || '7d'),
+    );
 
     await this.prisma.user.update({
       where: { id: user.id },
@@ -63,10 +92,10 @@ export class AuthService {
   }
 
   async refresh(refreshToken: string) {
-    let payload: JwtPayload;
+    let payload: AppJwtPayload;
 
     try {
-      payload = await this.jwt.verifyAsync<JwtPayload>(refreshToken, {
+      payload = await this.jwt.verifyAsync<AppJwtPayload>(refreshToken, {
         secret: process.env.JWT_REFRESH_SECRET!,
       });
     } catch {
@@ -78,7 +107,7 @@ export class AuthService {
       include: { role: true },
     });
 
-    if (!user || !user.refreshTokenHash || !user.isActive) {
+    if (!user   || !user.refreshTokenHash || !user.isActive) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
@@ -87,42 +116,63 @@ export class AuthService {
     }
 
     const ok = await bcrypt.compare(refreshToken, user.refreshTokenHash);
-    if (!ok) throw new UnauthorizedException('Invalid refresh token');
 
-    const newPayload: JwtPayload = {
+    if (!ok) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const refreshedPayload: AppJwtPayload = {
       sub: user.id,
+      email: user.email,
+      systemRole: user.SystemRole,
+      organizationRole:
+        user.role.name === 'OWNER' ||
+        user.role.name === 'MANAGER' ||
+        user.role.name === 'EMPLOYEE'
+          ? user.role.name
+          : undefined,
       org: user.organizationId,
-      role: user.role.name,
     };
 
-    const accessToken = await this.jwt.signAsync(newPayload as any, {
+    const accessToken = await this.jwt.signAsync(refreshedPayload as any, {
       secret: process.env.JWT_ACCESS_SECRET!,
       expiresIn: (process.env.JWT_ACCESS_EXPIRES_IN || '15m') as any,
     });
 
-    // Можно ротировать refresh, но для MVP оставим как есть (без перегруза)
     return { accessToken };
   }
 
   async logout(userId: string) {
     await this.prisma.user.update({
       where: { id: userId },
-      data: { refreshTokenHash: null, refreshTokenExp: null },
+      data: {
+        refreshTokenHash: null,
+        refreshTokenExp: null,
+      },
     });
+
     return { ok: true };
   }
 
-  // минимальный парсер 7d / 15m для refreshExp (только для наших 7d/15m)
   private parseMs(v: string) {
     const m = /^(\d+)([smhd])$/.exec(v.trim());
-    if (!m) return 7 * 24 * 60 * 60 * 1000;
+
+    if (!m) {
+      return 7 * 24 * 60 * 60 * 1000;
+    }
+
     const n = Number(m[1]);
     const unit = m[2];
+
     const mult =
-      unit === 's' ? 1000 :
-      unit === 'm' ? 60 * 1000 :
-      unit === 'h' ? 60 * 60 * 1000 :
-      24 * 60 * 60 * 1000;
+      unit === 's'
+        ? 1000
+        : unit === 'm'
+          ? 60 * 1000
+          : unit === 'h'
+            ? 60 * 60 * 1000
+            : 24 * 60 * 60 * 1000;
+
     return n * mult;
   }
 }

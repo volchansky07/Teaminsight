@@ -3,12 +3,13 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/services/api';
+import { parseJwt } from '@/utils/auth';
 
 export default function LoginPage() {
   const router = useRouter();
 
-  const [email, setEmail] = useState('admin@test.com');
-  const [password, setPassword] = useState('Admin123!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -26,7 +27,31 @@ export default function LoginPage() {
         password,
       });
 
-      localStorage.setItem('token', res.data.accessToken);
+      const accessToken = res.data.accessToken as string | undefined;
+
+      if (!accessToken) {
+        throw new Error('Access token not found');
+      }
+
+      localStorage.setItem('token', accessToken);
+
+      const payload = parseJwt(accessToken);
+
+      if (!payload) {
+        router.push('/projects');
+        return;
+      }
+
+      if (res.data.mustChangePassword) {
+        router.push('/change-password');
+        return;
+      }
+
+      if (payload.systemRole === 'SUPER_ADMIN') {
+        router.push('/admin/dashboard');
+        return;
+      }
+
       router.push('/projects');
     } catch (err) {
       console.error('Login error:', err);

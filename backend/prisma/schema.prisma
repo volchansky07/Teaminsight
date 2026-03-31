@@ -15,6 +15,11 @@ enum ProjectStatus {
   ARCHIVED
 }
 
+enum SystemRole {
+  USER
+  SUPER_ADMIN
+}
+
 enum ProjectRole {
   OWNER
   MANAGER
@@ -75,8 +80,11 @@ enum NotificationEntityType {
 }
 
 model Organization {
-  id        String   @id @default(uuid())
-  name      String
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+  isActive    Boolean @default(true)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
@@ -108,21 +116,27 @@ model Role {
 }
 
 model User {
-  id             String   @id @default(uuid())
-  fullName       String
-  email          String   @unique
-  passwordHash   String
-  organizationId String
-  roleId         String
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id           String @id @default(uuid())
+  fullName     String
+  email        String @unique
+  passwordHash String
+
+  roleId String
+
+  isActive           Boolean    @default(true)
+  SystemRole         SystemRole @default(USER)
+  mustChangePassword Boolean    @default(false)
+  lastLoginAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   refreshTokenHash String?
   refreshTokenExp  DateTime?
 
-  organization Organization @relation(fields: [organizationId], references: [id])
-  role         Role         @relation(fields: [roleId], references: [id])
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  organizationId String?
+  role           Role          @relation(fields: [roleId], references: [id])
 
   managedProjects Project[] @relation("ProjectOwner")
   assignedTasks   Task[]    @relation("TaskAssignee")
@@ -135,7 +149,8 @@ model User {
   EmployeeKPI         EmployeeKPI[]
   AuditLog            AuditLog[]
 
-  notifications Notification[]
+  notifications  Notification[]
+  AdminActionLog AdminActionLog[]
 }
 
 model Project {
@@ -163,6 +178,18 @@ model Project {
   @@index([organizationId])
   @@index([ownerId])
   @@index([isArchived])
+}
+
+model AdminActionLog {
+  id           String   @id @default(uuid())
+  adminId      String
+  actionType   String
+  targetUserId String?
+  targetOrgId  String?
+  details      String?
+  createdAt    DateTime @default(now())
+
+  admin User @relation(fields: [adminId], references: [id])
 }
 
 model ProjectMember {
