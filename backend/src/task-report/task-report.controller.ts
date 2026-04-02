@@ -80,4 +80,9 @@ export class TaskReportController {
   ) {
     return this.taskReportService.rejectReport(reportId, req.user.sub, dto);
   }
+
+  @Get('project/:projectId')
+  getReportsByProject(@Param('projectId') projectId: string, @Req() req) {
+    return this.taskReportService.getReportsByProject(projectId, req.user.sub);
+  }
 }

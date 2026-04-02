@@ -193,6 +193,67 @@ export class TaskReportService {
     return createdReport;
   }
 
+  async getReportsByProject(projectId: string, userId: string) {
+    const membership = await this.prisma.projectMember.findUnique({
+      where: {
+        projectId_userId: {
+          projectId,
+          userId,
+        },
+      },
+    });
+
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { ownerId: true },
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    const hasAccess = project.ownerId === userId || !!membership;
+
+    if (!hasAccess) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    return this.prisma.taskReport.findMany({
+      where: {
+        task: {
+          projectId,
+        },
+      },
+      include: {
+        author: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
+        reviewedBy: {
+          select: {
+            id: true,
+            fullName: true,
+          },
+        },
+        task: {
+          select: {
+            id: true,
+            title: true,
+            isArchived: true,
+            archivedAt: true,
+            archiveReason: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
+
   async createFileReport(
     userId: string,
     taskId: string,
