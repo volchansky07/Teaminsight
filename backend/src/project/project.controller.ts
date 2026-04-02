@@ -21,8 +21,12 @@ import { Roles } from '../auth/decorators/roles.decorator';
 export class ProjectController {
   constructor(private readonly projectService: ProjectService) {}
 
+  @Post('test-create')
+  testCreate() {
+    return { ok: true, route: 'projects/test-create' };
+  }
+
   @Post()
-  @Roles('admin')
   createProject(@Body() dto: CreateProjectDto, @Req() req) {
     return this.projectService.createProject(req.user.sub, dto);
   }
@@ -32,39 +36,38 @@ export class ProjectController {
     return this.projectService.getMyProjects(req.user.sub);
   }
 
-  @Get(':id/dashboard')
-  getDashboard(@Param('id') id: string) {
-    return this.projectService.getDashboard(id);
-  }
-
-  @Get(':id/contributions')
-  getContributions(@Param('id') id: string) {
-    return this.projectService.getContributions(id);
-  }
-
-  @Get(':id/members')
-  getProjectMembers(@Param('id') id: string) {
-    return this.projectService.getProjectMembers(id);
-  }
-
-  @Post(':id/members')
-  addMember(@Param('id') id: string, @Body() dto: AddMemberDto) {
-    return this.projectService.addMember(id, dto);
-  }
-
-  @Delete(':id/members/:userId')
-  removeMember(@Param('id') id: string, @Param('userId') userId: string) {
-    return this.projectService.removeMember(id, userId);
-  }
-
-  @Get(':id')
-  getById(@Param('id') id: string) {
-    return this.projectService.getById(id);
-  }
-
   @Get('archive/my')
   getMyArchivedProjects(@Req() req) {
     return this.projectService.getMyArchivedProjects(req.user.sub);
+  }
+
+  @Get(':id/dashboard')
+  getDashboard(@Param('id') id: string, @Req() req) {
+    return this.projectService.getDashboard(id, req.user.sub);
+  }
+
+  @Get(':id/contributions')
+  getContributions(@Param('id') id: string, @Req() req) {
+    return this.projectService.getContributions(id, req.user.sub);
+  }
+
+  @Get(':id/members')
+  getProjectMembers(@Param('id') id: string, @Req() req) {
+    return this.projectService.getProjectMembers(id, req.user.sub);
+  }
+
+  @Post(':id/members')
+  addMember(@Param('id') id: string, @Body() dto: AddMemberDto, @Req() req) {
+    return this.projectService.addMember(id, dto, req.user.sub);
+  }
+
+  @Delete(':id/members/:userId')
+  removeMember(
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+    @Req() req,
+  ) {
+    return this.projectService.removeMember(id, userId, req.user.sub);
   }
 
   @Patch(':id/archive')
@@ -75,5 +78,10 @@ export class ProjectController {
   @Patch(':id/unarchive')
   unarchiveProject(@Param('id') id: string, @Req() req) {
     return this.projectService.unarchiveProject(id, req.user.sub);
+  }
+
+  @Get(':id')
+  getById(@Param('id') id: string, @Req() req) {
+    return this.projectService.getById(id, req.user.sub);
   }
 }

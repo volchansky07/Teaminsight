@@ -73,4 +73,19 @@ export class UserService {
 
     return user;
   }
+
+  async findByIdWithinOrganization(id: string, organizationId: string) {
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id,
+        organizationId,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return user;
+  }
 }

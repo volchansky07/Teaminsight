@@ -262,7 +262,11 @@ export default function ProjectsPage() {
         message: 'Проект успешно создан.',
       });
     } catch (error) {
-      console.error('Failed to create project:', error);
+      console.error('CREATE PROJECT ERROR FULL:', error);
+      console.error('CREATE PROJECT ERROR STATUS:', error?.response?.status);
+      console.error('CREATE PROJECT ERROR DATA:', error?.response?.data);
+      console.error('CREATE PROJECT ERROR URL:', error?.config?.url);
+
       setNotice({
         type: 'error',
         message: 'Не удалось создать проект.',

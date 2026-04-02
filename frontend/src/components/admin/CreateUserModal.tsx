@@ -57,54 +57,53 @@ export default function CreateUserModal({
   useEffect(() => {
     if (!isOpen) return;
 
-    const bootstrap = async () => {
-      try {
-        setBootstrapLoading(true);
+  const bootstrap = async () => {
+    try {
+      setBootstrapLoading(true);
 
-        const [rolesRes, orgsRes] = await Promise.all([
-          api.get('/roles'),
-          api.get('/admin/organizations'),
-        ]);
+      const rolesRes = await api.get('/roles');
+      const orgsRes = await api.get('/admin/organizations');
 
-        const rawRoles = Array.isArray(rolesRes.data) ? rolesRes.data : [];
-        const loadedRoles: RoleItem[] = rawRoles.filter(
-          (role: RoleItem) =>
-            role &&
-            typeof role.id === 'string' &&
-            typeof role.name === 'string' &&
-            ALLOWED_ROLE_NAMES.includes(role.name),
-        );
+      const rawRoles = Array.isArray(rolesRes.data) ? rolesRes.data : [];
+      const loadedRoles: RoleItem[] = rawRoles.filter(
+        (role: RoleItem) =>
+          role &&
+          typeof role.id === 'string' &&
+          typeof role.name === 'string' &&
+          ALLOWED_ROLE_NAMES.includes(role.name),
+      );
 
-        const loadedOrganizations: OrganizationItem[] = (
-          Array.isArray(orgsRes.data) ? orgsRes.data : []
-        ).filter((item: OrganizationItem) => item.isActive);
+      const loadedOrganizations: OrganizationItem[] = (
+        Array.isArray(orgsRes.data) ? orgsRes.data : []
+      ).filter((item: OrganizationItem) => item.isActive);
 
-        console.log('ROLES FROM API:', rawRoles);
-        console.log('FILTERED ROLES:', loadedRoles);
+      setRoles(loadedRoles);
+      setOrganizations(loadedOrganizations);
 
-        setRoles(loadedRoles);
-        setOrganizations(loadedOrganizations);
-
-        if (loadedRoles.length > 0) {
-          const managerRole =
-            loadedRoles.find((role) => role.name === 'MANAGER') ?? loadedRoles[0];
-          setRoleId(managerRole.id);
-        } else {
-          setRoleId('');
-        }
-
-        if (loadedOrganizations.length > 0) {
-          setOrganizationId(loadedOrganizations[0].id);
-        } else {
-          setOrganizationId('');
-        }
-      } catch (error) {
-        console.error('Ошибка загрузки справочников:', error);
-        alert('Не удалось загрузить роли или организации.');
-      } finally {
-        setBootstrapLoading(false);
+      if (loadedRoles.length > 0) {
+        const managerRole =
+          loadedRoles.find((role) => role.name === 'MANAGER') ?? loadedRoles[0];
+        setRoleId(managerRole.id);
+      } else {
+        setRoleId('');
       }
-    };
+
+      if (loadedOrganizations.length > 0) {
+        setOrganizationId(loadedOrganizations[0].id);
+      } else {
+        setOrganizationId('');
+      }
+    } catch (error: any) {
+      console.error('CREATE USER MODAL BOOTSTRAP ERROR FULL:', error);
+      console.error('CREATE USER MODAL BOOTSTRAP STATUS:', error?.response?.status);
+      console.error('CREATE USER MODAL BOOTSTRAP DATA:', error?.response?.data);
+      console.error('CREATE USER MODAL BOOTSTRAP URL:', error?.config?.url);
+
+      alert('Не удалось загрузить роли или организации.');
+    } finally {
+      setBootstrapLoading(false);
+    }
+  };
 
     bootstrap();
   }, [isOpen]);

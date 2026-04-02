@@ -24,11 +24,11 @@ export class ProjectService {
       throw new NotFoundException('User not found');
     }
 
-    if (!user?.organizationId) {
+    if (!user.organizationId) {
       throw new ForbiddenException('User does not belong to an organization');
     }
 
-    if (user.role.name !== 'OWNER' && user.role.name !== 'MANAGER') {
+    if (!user.role || (user.role.name !== 'OWNER' && user.role.name !== 'MANAGER')) {
       throw new ForbiddenException(
         'Only organization owners and managers can create projects',
       );
@@ -40,6 +40,15 @@ export class ProjectService {
         description: dto.description,
         organizationId: user.organizationId,
         ownerId: userId,
+        members: {
+          create: {
+            userId,
+            roleInProject: ProjectRole.OWNER,
+          },
+        },
+      },
+      include: {
+        members: true,
       },
     });
   }
@@ -118,7 +127,9 @@ export class ProjectService {
     }));
   }
 
-  async getById(projectId: string) {
+  async getById(projectId: string, currentUserId: string) {
+    await this.assertProjectAccess(projectId, currentUserId);
+
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
       include: {
@@ -138,7 +149,9 @@ export class ProjectService {
     return project;
   }
 
-  async getProjectMembers(projectId: string) {
+  async getProjectMembers(projectId: string, currentUserId: string) {
+    await this.assertProjectAccess(projectId, currentUserId);
+
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
       include: {
@@ -162,7 +175,9 @@ export class ProjectService {
     }));
   }
 
-  async addMember(projectId: string, dto: AddMemberDto) {
+  async addMember(projectId: string, dto: AddMemberDto, currentUserId: string) {
+    await this.assertProjectManageAccess(projectId, currentUserId);
+
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
     });
@@ -208,7 +223,12 @@ export class ProjectService {
     });
   }
 
-  async removeMember(projectId: string, userId: string) {
+  async removeMember(projectId: string, userId: string, currentUserId: string) {
+    const currentMember = await this.assertProjectManageAccess(
+      projectId,
+      currentUserId,
+    );
+
     const membership = await this.prisma.projectMember.findUnique({
       where: {
         projectId_userId: {
@@ -222,6 +242,14 @@ export class ProjectService {
       throw new NotFoundException('Project member not found');
     }
 
+    if (membership.roleInProject === ProjectRole.OWNER) {
+      throw new ForbiddenException('Project owner cannot be removed');
+    }
+
+    if (userId === currentUserId && currentMember.roleInProject === ProjectRole.MANAGER) {
+      throw new ForbiddenException('Manager cannot remove himself from the project');
+    }
+
     return this.prisma.projectMember.delete({
       where: {
         projectId_userId: {
@@ -233,32 +261,14 @@ export class ProjectService {
   }
 
   async archiveProject(projectId: string, userId: string) {
+    await this.assertProjectManageAccess(projectId, userId);
+
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
     });
 
     if (!project) {
       throw new NotFoundException('Project not found');
-    }
-
-    const membership = await this.prisma.projectMember.findUnique({
-      where: {
-        projectId_userId: {
-          projectId,
-          userId,
-        },
-      },
-    });
-
-    if (!membership) {
-      throw new ForbiddenException('Access denied');
-    }
-
-    if (
-      membership.roleInProject !== 'OWNER' &&
-      membership.roleInProject !== 'MANAGER'
-    ) {
-      throw new ForbiddenException('Only managers can archive projects');
     }
 
     if (project.isArchived) {
@@ -289,32 +299,14 @@ export class ProjectService {
   }
 
   async unarchiveProject(projectId: string, userId: string) {
+    await this.assertProjectManageAccess(projectId, userId);
+
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
     });
 
     if (!project) {
       throw new NotFoundException('Project not found');
-    }
-
-    const membership = await this.prisma.projectMember.findUnique({
-      where: {
-        projectId_userId: {
-          projectId,
-          userId,
-        },
-      },
-    });
-
-    if (!membership) {
-      throw new ForbiddenException('Access denied');
-    }
-
-    if (
-      membership.roleInProject !== 'OWNER' &&
-      membership.roleInProject !== 'MANAGER'
-    ) {
-      throw new ForbiddenException('Only managers can restore projects');
     }
 
     if (!project.isArchived) {
@@ -345,7 +337,9 @@ export class ProjectService {
     });
   }
 
-  async getDashboard(projectId: string) {
+  async getDashboard(projectId: string, currentUserId: string) {
+    await this.assertProjectAccess(projectId, currentUserId);
+
     const totalTasks = await this.prisma.task.count({
       where: {
         projectId,
@@ -371,7 +365,9 @@ export class ProjectService {
     };
   }
 
-  async getContributions(projectId: string) {
+  async getContributions(projectId: string, currentUserId: string) {
+    await this.assertProjectAccess(projectId, currentUserId);
+
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
       include: {
@@ -477,5 +473,51 @@ export class ProjectService {
     return contributions.sort(
       (a, b) => b.contributionScore - a.contributionScore,
     );
+  }
+
+  private async assertProjectAccess(projectId: string, userId: string) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: {
+        id: true,
+        ownerId: true,
+      },
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    if (project.ownerId === userId) {
+      return { roleInProject: ProjectRole.OWNER };
+    }
+
+    const member = await this.prisma.projectMember.findUnique({
+      where: {
+        projectId_userId: {
+          projectId,
+          userId,
+        },
+      },
+    });
+
+    if (!member) {
+      throw new ForbiddenException('Access denied to this project');
+    }
+
+    return member;
+  }
+
+  private async assertProjectManageAccess(projectId: string, userId: string) {
+    const member = await this.assertProjectAccess(projectId, userId);
+
+    if (
+      member.roleInProject !== ProjectRole.OWNER &&
+      member.roleInProject !== ProjectRole.MANAGER
+    ) {
+      throw new ForbiddenException('Only project managers can manage members');
+    }
+
+    return member;
   }
 }

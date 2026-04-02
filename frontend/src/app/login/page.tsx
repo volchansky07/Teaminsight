@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/services/api';
-import { parseJwt } from '@/utils/auth';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -21,41 +20,42 @@ export default function LoginPage() {
       setLoading(true);
 
       localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
 
       const res = await api.post('/auth/login', {
-        email,
-        password,
+        email: email.trim(),
+        password: password.trim(),
       });
 
       const accessToken = res.data.accessToken as string | undefined;
+      const refreshToken = res.data.refreshToken as string | undefined;
+      const user = res.data.user;
 
-      if (!accessToken) {
-        throw new Error('Access token not found');
+      if (!accessToken || !user) {
+        throw new Error('Invalid login response');
       }
 
       localStorage.setItem('token', accessToken);
 
-      const payload = parseJwt(accessToken);
+      if (refreshToken) {
+        localStorage.setItem('refreshToken', refreshToken);
+      }
 
-      if (!payload) {
-        router.push('/projects');
+      if (user.mustChangePassword) {
+        router.push('/force-change-password');
         return;
       }
 
-      if (res.data.mustChangePassword) {
-        router.push('/change-password');
-        return;
-      }
-
-      if (payload.systemRole === 'SUPER_ADMIN') {
+      if (user.systemRole === 'SUPER_ADMIN') {
         router.push('/admin/dashboard');
         return;
       }
 
       router.push('/projects');
-    } catch (err) {
-      console.error('Login error:', err);
-      setError('Неверный email или пароль');
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.message || 'Неверный email или пароль',
+      );
     } finally {
       setLoading(false);
     }

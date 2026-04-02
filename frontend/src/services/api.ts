@@ -11,12 +11,16 @@ api.interceptors.request.use(
   (config) => {
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('token');
+      const url = config.url || '';
+
+      const isAuthRoute =
+        url.includes('/auth/login') || url.includes('/auth/refresh');
 
       if (!config.headers) {
         config.headers = {} as any;
       }
 
-      if (token) {
+      if (token && !isAuthRoute) {
         config.headers.Authorization = `Bearer ${token}`;
       } else {
         delete config.headers.Authorization;

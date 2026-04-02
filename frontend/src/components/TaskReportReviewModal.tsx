@@ -118,6 +118,8 @@ export default function TaskReportReviewModal({
   const [loading, setLoading] = useState<'approve' | 'reject' | null>(null);
   const [error, setError] = useState('');
 
+  const [submitting, setSubmitting] = useState(false);
+
   const fileHref = useMemo(() => getUploadUrl(report?.fileUrl), [report?.fileUrl]);
 
   if (!isOpen || !task || !report) return null;
@@ -137,23 +139,25 @@ export default function TaskReportReviewModal({
   };
 
   const handleReject = async () => {
-    if (!rejectComment.trim()) {
-      setError('Укажите причину отклонения отчёта.');
+    const trimmedComment = rejectComment.trim();
+
+    if (!trimmedComment) {
+      setError('Укажите причину отклонения отчёта');
       return;
     }
 
     try {
-      setLoading('reject');
+      setSubmitting(true);
       setError('');
-      await onReject(report.id, rejectComment.trim());
-      setRejectComment('');
-      setRejectMode(false);
+
+      await onReject(report.id, { managerComment: trimmedComment });
+
       onClose();
-    } catch (e) {
-      console.error(e);
-      setError('Не удалось отклонить отчёт.');
+    } catch (error) {
+      console.error('Ошибка отклонения отчёта:', error);
+      setError('Не удалось отклонить отчёт');
     } finally {
-      setLoading(null);
+      setSubmitting(false);
     }
   };
 

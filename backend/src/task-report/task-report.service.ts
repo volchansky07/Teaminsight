@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -411,9 +412,7 @@ export class TaskReportService {
     }
 
     if (!dto.managerComment?.trim()) {
-      throw new ForbiddenException(
-        'Manager comment is required when rejecting report',
-      );
+      throw new BadRequestException('Manager comment is required when rejecting report');
     }
 
     const updatedReport = await this.prisma.taskReport.update({
