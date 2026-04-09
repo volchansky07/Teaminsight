@@ -1,11 +1,12 @@
 {
-  "name": "frontend",
+  "name": "teaminsight-frontend",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3001",
-    "build": "npx nest build",
-    "start:prod": "node dist/main.js",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "start:prod": "node dist/src/main.js",
     "lint": "eslint"
   },
   "dependencies": {

@@ -124,6 +124,9 @@ describe('RBAC E2E', () => {
     });
     if (!adminUser) throw new Error('admin@test.com not found after upsert');
 
+    if (!adminUser.organizationId) {
+      throw new Error('adminUser.organizationId is null');
+    }
     organizationId = adminUser.organizationId;
 
     // ---- login admin ----
