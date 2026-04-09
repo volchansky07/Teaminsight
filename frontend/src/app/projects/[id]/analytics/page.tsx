@@ -485,7 +485,7 @@ function TeamAnalyticsView({
                   />
                   <Tooltip
                     cursor={false}
-                    formatter={(value: number, name: string) => [value, name]}
+                    formatter={(value, name) => [value, name]}
                     labelFormatter={(label) => `Сотрудник: ${label}`}
                     contentStyle={{
                       background: '#111',

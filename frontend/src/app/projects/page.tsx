@@ -261,7 +261,7 @@ export default function ProjectsPage() {
         type: 'success',
         message: 'Проект успешно создан.',
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('CREATE PROJECT ERROR FULL:', error);
       console.error('CREATE PROJECT ERROR STATUS:', error?.response?.status);
       console.error('CREATE PROJECT ERROR DATA:', error?.response?.data);

@@ -371,7 +371,7 @@ export default function DashboardPage() {
     return members.find((member) => member.userId === currentUserId) ?? null;
   }, [members, currentUserId]);
 
-  const currentProjectRole = currentProjectMember?.roleInProject ?? null;
+  const [currentProjectRole, setCurrentProjectRole] = useState<'OWNER' | 'MANAGER' | 'MEMBER' | null>(null);
   const isManagerView =
     currentProjectRole === 'OWNER' || currentProjectRole === 'MANAGER';
   const isMemberView = currentProjectRole === 'MEMBER';
@@ -1364,7 +1364,6 @@ const handleStartTask = async (taskId: string) => {
             onOpenReportsPage={handleOpenReportsPage}
             onOpenReportModal={handleOpenReportModal}
             onOpenReviewModal={handleOpenReviewModal}
-            onArchiveTask={handleArchiveTask}
           />
           <KanbanColumn
             title="Выполнено"
@@ -1434,15 +1433,6 @@ const handleStartTask = async (taskId: string) => {
         onSave={handleUpdateTask}
       />
 
-      <TaskReportSubmitModal
-        isOpen={!!reviewModalTask}
-        task={reviewModalTask}
-        reportType={reviewModalTask?.requiresReport ? reviewModalTask.reportType : undefined}
-        onClose={handleCloseReviewModal}
-        onApprove={handleApproveReport}
-        onReject={handleRejectReport}
-      />
-
       <ConfirmActionModal
         isOpen={!!hideTaskModalTask}
         title="Скрыть задачу"
@@ -1459,12 +1449,13 @@ const handleStartTask = async (taskId: string) => {
       />
 
       <TaskReportReviewModal
-        isOpen={!!reviewModalTask && !!reviewModalReport}
+        isOpen={!!reviewModalTask}
         task={reviewModalTask}
         report={reviewModalReport}
         onClose={handleCloseReviewModal}
         onApprove={handleApproveReport}
         onReject={handleRejectReport}
+
       />
       <TaskReportModal
         isOpen={!!reportModalTask}

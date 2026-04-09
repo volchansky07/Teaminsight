@@ -25,11 +25,14 @@ interface NoticeState {
 }
 
 interface Props {
+  projectId: string;
   members: ProjectMemberItem[];
   organizationUsers: OrganizationUserItem[];
   onAddMember: (userId: string, roleInProject: string) => Promise<void>;
   onRemoveMember: (userId: string) => Promise<void>;
+  onUpdated: () => Promise<void>;
 }
+
 
 function translateProjectRole(role: string) {
   switch (role) {
@@ -45,10 +48,12 @@ function translateProjectRole(role: string) {
 }
 
 export default function ProjectTeamSection({
+  projectId,
   members,
   organizationUsers,
   onAddMember,
   onRemoveMember,
+  onUpdated,
 }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState('');

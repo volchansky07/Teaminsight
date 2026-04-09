@@ -6,23 +6,7 @@ import api from '@/services/api';
 import AppHeader from '@/components/AppHeader';
 import InlineNotice from '@/components/InlineNotice';
 import ContributionLeaderboard from '@/components/ContributionLeaderboard';
-
-interface ContributionItem {
-  userId: string;
-  fullName: string;
-  roleInProject: 'OWNER' | 'MANAGER' | 'MEMBER';
-  assignedTasks: number;
-  completedTasks: number;
-  inProgressTasks: number;
-  todoTasks: number;
-  overdueTasks: number;
-  onTimeCompletedTasks: number;
-  completionRate: number;
-  onTimeRate: number;
-  totalComplexityPoints: number;
-  totalPriorityWeight: number;
-  contributionScore: number;
-}
+import type { ContributionItem } from '@/types/contribution';
 
 interface NoticeState {
   type: 'success' | 'error';

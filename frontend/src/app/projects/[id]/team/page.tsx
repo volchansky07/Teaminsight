@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import api from '@/services/api';
 import AppHeader from '@/components/AppHeader';
@@ -15,6 +15,14 @@ interface Member {
     fullName: string;
     email: string;
   };
+}
+
+interface ProjectMemberItem {
+  id: string;
+  userId: string;
+  fullName: string;
+  email: string;
+  roleInProject: 'OWNER' | 'MANAGER' | 'MEMBER';
 }
 
 interface OrganizationUser {
@@ -61,10 +69,82 @@ export default function ProjectTeamPage() {
     }
   };
 
+  const handleAddMember = async (
+    userId: string,
+    roleInProject: string,
+  ) => {
+    setNotice(null);
+
+    try {
+      await api.post(`/projects/${projectId}/members`, {
+        userId,
+        roleInProject,
+      });
+
+      await loadData();
+
+      setNotice({
+        type: 'success',
+        message: 'Участник успешно добавлен в проект.',
+      });
+    } catch (error: any) {
+      console.error('Ошибка добавления участника:', error);
+
+      const serverMessage = error?.response?.data?.message;
+
+      setNotice({
+        type: 'error',
+        message:
+          typeof serverMessage === 'string'
+            ? serverMessage
+            : 'Не удалось добавить участника.',
+      });
+    }
+  };
+
+  const handleRemoveMember = async (userId: string) => {
+    setNotice(null);
+
+    try {
+      await api.delete(`/projects/${projectId}/members/${userId}`);
+
+      await loadData();
+
+      setNotice({
+        type: 'success',
+        message: 'Участник успешно удалён из проекта.',
+      });
+    } catch (error: any) {
+      console.error('Ошибка удаления участника:', error);
+
+      const serverMessage = error?.response?.data?.message;
+
+      setNotice({
+        type: 'error',
+        message:
+          typeof serverMessage === 'string'
+            ? serverMessage
+            : 'Не удалось удалить участника.',
+      });
+    }
+  };
+
   useEffect(() => {
     if (!projectId) return;
     loadData();
   }, [projectId]);
+
+  const normalizedMembers = useMemo<ProjectMemberItem[]>(
+    () =>
+      members.map((member) => ({
+        id: member.id,
+        userId: member.user.id,
+        fullName: member.user.fullName,
+        email: member.user.email,
+        roleInProject: member.roleInProject,
+      })),
+    [members],
+  );
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -90,9 +170,11 @@ export default function ProjectTeamPage() {
         ) : (
           <ProjectTeamSection
             projectId={projectId}
-            members={members}
+            members={normalizedMembers}
             organizationUsers={organizationUsers}
             onUpdated={loadData}
+            onAddMember={handleAddMember}
+            onRemoveMember={handleRemoveMember}
           />
         )}
       </main>

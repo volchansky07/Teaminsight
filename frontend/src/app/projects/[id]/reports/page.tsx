@@ -686,13 +686,13 @@ export default function ProjectReportsPage() {
 
   const handleApproveReport = async (
     reportId: string,
-    managerComment?: string,
+    payload: { managerComment?: string },
   ) => {
     setNotice(null);
 
     try {
       await api.patch(`/task-reports/${reportId}/approve`, {
-        managerComment: managerComment?.trim() || undefined,
+        managerComment: payload.managerComment?.trim() || undefined,
       });
 
       await loadData();
@@ -718,13 +718,13 @@ export default function ProjectReportsPage() {
 
   const handleRejectReport = async (
     reportId: string,
-    managerComment: string,
+    payload: { managerComment: string },
   ) => {
     setNotice(null);
 
     try {
       await api.patch(`/task-reports/${reportId}/reject`, {
-        managerComment: managerComment.trim(),
+        managerComment: payload.managerComment.trim(),
       });
 
       await loadData();

@@ -10,40 +10,29 @@ interface ReviewTask {
     id: string;
     fullName: string;
   } | null;
-  requiresReport?: boolean;
-  reportType?: 'TEXT' | 'LINK' | 'FILE' | 'IMAGE' | null;
 }
 
 interface ReviewReport {
   id: string;
+  reportType: 'TEXT' | 'LINK' | 'FILE' | 'IMAGE';
+  status: 'SUBMITTED' | 'APPROVED' | 'REJECTED';
   content?: string | null;
   fileUrl?: string | null;
   originalFileName?: string | null;
   mimeType?: string | null;
   fileSize?: number | null;
-  reportType: 'TEXT' | 'LINK' | 'FILE' | 'IMAGE';
-  status: 'SUBMITTED' | 'APPROVED' | 'REJECTED';
   managerComment?: string | null;
   createdAt: string;
   reviewedAt?: string | null;
-  author?: {
-    id: string;
-    fullName: string;
-    email?: string;
-  } | null;
-  reviewedBy?: {
-    id: string;
-    fullName: string;
-  } | null;
 }
 
 interface Props {
   isOpen: boolean;
-  task: ReviewTask | null;
-  report: ReviewReport | null;
+  task: any;
+  report?: any;
   onClose: () => void;
-  onApprove: (reportId: string, managerComment?: string) => Promise<void> | void;
-  onReject: (reportId: string, managerComment: string) => Promise<void> | void;
+  onApprove: (reportId: string, payload: { managerComment?: string }) => Promise<void>;
+  onReject: (reportId: string, payload: { managerComment: string }) => Promise<void>;
 }
 
 function translateReportType(type?: string | null) {
@@ -113,6 +102,7 @@ export default function TaskReportReviewModal({
   onApprove,
   onReject,
 }: Props) {
+
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectComment, setRejectComment] = useState('');
   const [loading, setLoading] = useState<'approve' | 'reject' | null>(null);
@@ -128,7 +118,7 @@ export default function TaskReportReviewModal({
     try {
       setLoading('approve');
       setError('');
-      await onApprove(report.id, 'Отчёт принят.');
+      await onApprove(report.id, { managerComment: 'Отчёт принят.' });
       onClose();
     } catch (e) {
       console.error(e);
@@ -272,7 +262,7 @@ export default function TaskReportReviewModal({
             </p>
             <h2 className="text-2xl font-semibold text-white">{task.title}</h2>
             <p className="mt-2 text-sm text-neutral-400">
-              Исполнитель: {task.assignee?.fullName ?? report.author?.fullName ?? 'Неизвестно'}
+              Исполнитель: {task.assignee?.fullName || 'Неизвестно'}
             </p>
           </div>
 
