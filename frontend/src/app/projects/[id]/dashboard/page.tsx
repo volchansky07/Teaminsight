@@ -237,26 +237,27 @@ export default function DashboardPage() {
       window.removeEventListener('storage', syncToken);
     };
   }, [authToken]);
-
   const loadData = async () => {
-  try {
-    const [
-      projectRes,
-      tasksRes,
-      dashboardRes,
-      contributionsRes,
-      membersRes,
-      usersRes,
-    ] = await Promise.all([
-      api.get(`/projects/${projectId}`),
-      api.get(`/tasks/project/${projectId}`),
-      api.get(`/projects/${projectId}/dashboard`),
-      api.get(`/projects/${projectId}/contributions`),
-      api.get(`/projects/${projectId}/members`),
-      api.get('/users'),
-    ]);
+    try {
+      const [
+        projectRes,
+        tasksRes,
+        dashboardRes,
+        contributionsRes,
+        membersRes,
+        usersRes,
+        reportsRes,
+      ] = await Promise.all([
+        api.get(`/projects/${projectId}`),
+        api.get(`/tasks/project/${projectId}`),
+        api.get(`/projects/${projectId}/dashboard`),
+        api.get(`/projects/${projectId}/contributions`),
+        api.get(`/projects/${projectId}/members`),
+        api.get('/users'),
+        api.get(`/task-reports/project/${projectId}`),
+      ]);
 
-    const loadedTasks = tasksRes.data ?? [];
+    const loadedTasks: Task[] = tasksRes.data ?? [];
 
     let loadedReports: TaskReportItem[] = [];
 
@@ -270,17 +271,8 @@ export default function DashboardPage() {
       loadedReports = reportsResponses.flatMap((res) => res.data ?? []);
     }
 
-    if (loadedTasks.length > 0) {
-      const reportResponses = await Promise.all(
-        loadedTasks.map((task: any) =>
-          api.get(`/task-reports/task/${task.id}`).catch(() => ({ data: [] })),
-        ),
-      );
-
-      loadedReports = reportResponses.flatMap((res) => res.data ?? []);
-    }
-
     setReports(loadedReports);
+    console.log('STATE REPORTS SET');
 
     const enrichedTasks = loadedTasks.map((task: Task) => {
       const taskReports = loadedReports
@@ -305,6 +297,7 @@ export default function DashboardPage() {
     setMembers(membersRes.data);
     setOrganizationUsers(usersRes.data);
     setReports(loadedReports);
+      
   } catch (error: any) {
     console.error('Ошибка загрузки панели проекта:', error);
 
@@ -593,7 +586,7 @@ const handleStartTask = async (taskId: string) => {
 
     await api.patch(`/tasks/${taskId}/start`);
 
-    await loadData(); // или твоя функция обновления задач/страницы
+    await loadData(); 
   } catch (error) {
     console.error('Ошибка запуска задачи:', error);
     setNotice({
@@ -627,7 +620,7 @@ const handleStartTask = async (taskId: string) => {
     setArchiving(false);
     setArchivingTask(null);
   }
-};
+}; 
   
   const handleDeleteTaskDirect = (task: Task) => {
     setHideTaskModalTask(task);

@@ -5,9 +5,7 @@ import { useParams } from 'next/navigation';
 import api, { API_BASE_URL } from '@/services/api';
 import AppHeader from '@/components/AppHeader';
 import InlineNotice from '@/components/InlineNotice';
-import TaskReportsPanel from '@/components/TaskReportsPanel';
 import TaskReportReviewModal from '@/components/TaskReportReviewModal';
-
 
 interface TaskItem {
   id: string;
@@ -59,7 +57,7 @@ interface NoticeState {
 }
 
 type EmployeeReportFilter = 'ALL' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
-type ManagerReportFilter = 'ALL' | 'SUBMITTED' | 'APPROVED' | 'REJECTED'; 
+type ManagerReportFilter = 'ALL' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
 
 function parseJwt(
   token: string,
@@ -84,10 +82,8 @@ function formatDateTime(dateString?: string | null) {
 
 function formatFileSize(size?: number | null) {
   if (!size || size <= 0) return '—';
-
   if (size < 1024) return `${size} Б`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} КБ`;
-
   return `${(size / (1024 * 1024)).toFixed(1)} МБ`;
 }
 
@@ -208,7 +204,9 @@ function EmployeeReportCard({
 
               <span className="rounded-full border border-neutral-700 bg-neutral-900 px-3 py-1 text-neutral-300">
                 Отправлен:{' '}
-                <span className="text-white">{formatDateTime(report.createdAt)}</span>
+                <span className="text-white">
+                  {formatDateTime(report.createdAt)}
+                </span>
               </span>
             </div>
           ) : (
@@ -260,7 +258,7 @@ function EmployeeReportCard({
             ) : null}
 
             {report.originalFileName ? (
-              <span className="rounded-full border border-violet-900/50 bg-violet-950/40 px-3 py-1 text-violet-300 break-all">
+              <span className="break-all rounded-full border border-violet-900/50 bg-violet-950/40 px-3 py-1 text-violet-300">
                 Файл: {report.originalFileName}
               </span>
             ) : null}
@@ -273,7 +271,9 @@ function EmployeeReportCard({
 
             <span className="rounded-full border border-neutral-700 bg-neutral-900 px-3 py-1 text-neutral-300">
               Отправлен:{' '}
-              <span className="text-white">{formatDateTime(report.createdAt)}</span>
+              <span className="text-white">
+                {formatDateTime(report.createdAt)}
+              </span>
             </span>
           </div>
 
@@ -376,7 +376,9 @@ function ManagerReportCard({
 
               <span className="rounded-full border border-neutral-700 bg-neutral-900 px-3 py-1 text-neutral-300">
                 Отправлен:{' '}
-                <span className="text-white">{formatDateTime(report.createdAt)}</span>
+                <span className="text-white">
+                  {formatDateTime(report.createdAt)}
+                </span>
               </span>
             </div>
           ) : (
@@ -436,7 +438,9 @@ function ManagerReportCard({
 
             <span className="rounded-full border border-neutral-700 bg-neutral-900 px-3 py-1 text-neutral-300">
               Отправлен:{' '}
-              <span className="text-white">{formatDateTime(report.createdAt)}</span>
+              <span className="text-white">
+                {formatDateTime(report.createdAt)}
+              </span>
             </span>
           </div>
 
@@ -475,13 +479,12 @@ export default function ProjectReportsPage() {
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [currentUserId, setCurrentUserId] = useState('');
   const [currentSystemRole, setCurrentSystemRole] = useState('');
-
   const [projectName, setProjectName] = useState('');
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] =
     useState<EmployeeReportFilter>('ALL');
-  
+
   const [managerSearch, setManagerSearch] = useState('');
   const [managerStatusFilter, setManagerStatusFilter] =
     useState<ManagerReportFilter>('ALL');
@@ -497,9 +500,13 @@ export default function ProjectReportsPage() {
   const handleCloseManagerReport = () => {
     setManagerReviewReport(null);
   };
-  
+
   const isManagerView = useMemo(() => {
-    return currentSystemRole === 'admin';
+    return (
+      currentSystemRole === 'OWNER' ||
+      currentSystemRole === 'MANAGER' ||
+      currentSystemRole === 'SUPER_ADMIN'
+    );
   }, [currentSystemRole]);
 
   const managerEmployees = useMemo(() => {
@@ -513,15 +520,16 @@ export default function ProjectReportsPage() {
         });
       }
     });
-  
+
     return Array.from(unique.values()).sort((a, b) =>
       a.fullName.localeCompare(b.fullName, 'ru'),
     );
   }, [reports]);
 
   const employeeReports = useMemo(() => {
-    const ownReports = reports.filter((report) => report.author?.id === currentUserId);
-
+    const ownReports = reports.filter(
+      (report) => report.author?.id === currentUserId,
+    );
     const normalizedSearch = search.trim().toLowerCase();
 
     return ownReports
@@ -548,7 +556,6 @@ export default function ProjectReportsPage() {
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       );
   }, [reports, currentUserId, search, statusFilter, projectName]);
-
 
   const managerReports = useMemo(() => {
     const normalizedSearch = managerSearch.trim().toLowerCase();
@@ -585,17 +592,24 @@ export default function ProjectReportsPage() {
   const managerReviewTask = useMemo(() => {
     if (!managerReviewReport?.task) return null;
 
-    const matchedTask = tasks.find((task) => task.id === managerReviewReport.task?.id);
+    const matchedTask = tasks.find(
+      (task) => task.id === managerReviewReport.task?.id,
+    );
 
     if (matchedTask) return matchedTask;
 
     return {
       id: managerReviewReport.task.id,
       title: managerReviewReport.task.title,
+      status: {
+        id: 'unknown',
+        name: 'In Progress',
+      },
       assignee: managerReviewReport.author
         ? {
             id: managerReviewReport.author.id,
             fullName: managerReviewReport.author.fullName,
+            email: managerReviewReport.author.email,
           }
         : null,
       requiresReport: true,
@@ -606,14 +620,17 @@ export default function ProjectReportsPage() {
   const managerStats = useMemo(() => {
     return {
       total: reports.length,
-      submitted: reports.filter((report) => report.status === 'SUBMITTED').length,
+      submitted: reports.filter((report) => report.status === 'SUBMITTED')
+        .length,
       approved: reports.filter((report) => report.status === 'APPROVED').length,
       rejected: reports.filter((report) => report.status === 'REJECTED').length,
     };
   }, [reports]);
 
   const employeeStats = useMemo(() => {
-    const ownReports = reports.filter((report) => report.author?.id === currentUserId);
+    const ownReports = reports.filter(
+      (report) => report.author?.id === currentUserId,
+    );
 
     return {
       total: ownReports.length,
@@ -627,26 +644,20 @@ export default function ProjectReportsPage() {
   }, [reports, currentUserId]);
 
   const loadData = async () => {
-  try {
-    const projectRes = await api.get(`/projects/${projectId}`);
-    setProjectName(projectRes.data?.name ?? '');
+    try {
+      setLoading(true);
 
-    const tasksRes = await api.get(`/tasks/project/${projectId}`);
-    const loadedTasks: TaskItem[] = tasksRes.data ?? [];
-    setTasks(loadedTasks);
+      const [projectRes, tasksRes, reportsRes] = await Promise.all([
+        api.get(`/projects/${projectId}`),
+        api.get(`/tasks/project/${projectId}`),
+        api.get(`/task-reports/project/${projectId}`),
+      ]);
 
-      let loadedReports: TaskReportItem[] = [];
+      const loadedTasks: TaskItem[] = tasksRes.data ?? [];
+      const loadedReports: TaskReportItem[] = reportsRes.data ?? [];
 
-      if (loadedTasks.length > 0) {
-        const reportResponses = await Promise.all(
-          loadedTasks.map((task) =>
-            api.get(`/task-reports/task/${task.id}`).catch(() => ({ data: [] })),
-          ),
-        );
-
-        loadedReports = reportResponses.flatMap((res) => res.data ?? []);
-      }
-
+      setProjectName(projectRes.data?.name ?? '');
+      setTasks(loadedTasks);
       setReports(loadedReports);
     } catch (error) {
       console.error('Ошибка загрузки отчётов проекта:', error);
@@ -661,7 +672,6 @@ export default function ProjectReportsPage() {
 
   useEffect(() => {
     const token = localStorage.getItem('token') || '';
-
     if (!token) return;
 
     const payload = parseJwt(token);
@@ -742,15 +752,15 @@ export default function ProjectReportsPage() {
     <div className="min-h-screen bg-black text-white">
       <AppHeader projectId={projectId} />
 
-      <main className="max-w-[1600px] mx-auto px-8 py-10 space-y-8">
+      <main className="mx-auto max-w-[1600px] space-y-8 px-8 py-10">
         <div>
-          <p className="text-neutral-500 text-sm uppercase tracking-[0.2em] mb-3">
+          <p className="mb-3 text-sm uppercase tracking-[0.2em] text-neutral-500">
             ОТЧЁТЫ ПО ПРОЕКТУ
           </p>
           <h1 className="text-5xl font-bold tracking-tight">
             {isManagerView ? 'Отчёты' : 'Мои отчёты'}
           </h1>
-          <p className="text-neutral-400 mt-3 text-lg">
+          <p className="mt-3 text-lg text-neutral-400">
             {isManagerView
               ? 'Просматривайте, проверяйте и подтверждайте отчёты сотрудников по задачам проекта.'
               : 'Отслеживайте историю отправленных отчётов и их текущие статусы.'}
@@ -760,178 +770,202 @@ export default function ProjectReportsPage() {
         {notice && <InlineNotice type={notice.type} message={notice.message} />}
 
         {loading ? (
-          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-10">
+          <div className="rounded-3xl border border-neutral-800 bg-neutral-900 p-10">
             Загрузка отчётов проекта...
           </div>
         ) : isManagerView ? (
-        <>
-          <section className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-6">
-            <StatCard
-              title="Всего отчётов"
-              value={`${managerStats.total}`}
-              subtitle="Общее количество отчётов по проекту"
-              accentClass="bg-sky-400"
-            />
-
-            <StatCard
-              title="На проверке"
-              value={`${managerStats.submitted}`}
-              subtitle="Отчёты, ожидающие решения руководителя"
-              accentClass="bg-amber-400"
-            />
-
-            <StatCard
-              title="Принято"
-              value={`${managerStats.approved}`}
-              subtitle="Подтверждённые отчёты сотрудников"
-              accentClass="bg-emerald-400"
-            />
-
-            <StatCard
-              title="Отклонено"
-              value={`${managerStats.rejected}`}
-              subtitle="Отчёты, отправленные на доработку"
-              accentClass="bg-red-400"
-            />
-          </section>
-
-          <section className="rounded-[32px] border border-neutral-800 bg-neutral-900 p-7">
-            <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-              <div>
-                <p className="text-neutral-500 text-sm uppercase tracking-[0.2em] mb-3">
-                  ЖУРНАЛ ОТЧЁТОВ
-                </p>
-                <h2 className="text-4xl font-semibold text-white">
-                  Отчёты сотрудников
-                </h2>
-                <p className="mt-3 text-neutral-400 text-lg">
-                  Просматривайте историю всех отчётов по проекту, фильтруйте данные и
-                  открывайте нужный отчёт для проверки.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full xl:w-auto xl:min-w-[820px]">
-                <div>
-                  <label className="block text-sm text-neutral-400 mb-2">
-                    Поиск
-                  </label>
-                  <input
-                    value={managerSearch}
-                    onChange={(e) => setManagerSearch(e.target.value)}
-                    placeholder="По задаче, сотруднику или комментарию"
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-4 py-3 outline-none focus:border-white text-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-neutral-400 mb-2">
-                    Статус
-                  </label>
-                  <select
-                    value={managerStatusFilter}
-                    onChange={(e) =>
-                      setManagerStatusFilter(e.target.value as ManagerReportFilter)
-                    }
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-4 py-3 outline-none focus:border-white text-white"
-                  >
-                    <option value="ALL">Все</option>
-                    <option value="SUBMITTED">На проверке</option>
-                    <option value="APPROVED">Принято</option>
-                    <option value="REJECTED">Отклонено</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm text-neutral-400 mb-2">
-                    Сотрудник
-                  </label>
-                  <select
-                    value={managerEmployeeFilter}
-                    onChange={(e) => setManagerEmployeeFilter(e.target.value)}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-4 py-3 outline-none focus:border-white text-white"
-                  >
-                    <option value="ALL">Все сотрудники</option>
-                    {managerEmployees.map((employee) => (
-                      <option key={employee.id} value={employee.id}>
-                        {employee.fullName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <TaskReportReviewModal
-                isOpen={!!managerReviewReport && !!managerReviewTask}
-                task={managerReviewTask}
-                report={managerReviewReport}
-                onClose={handleCloseManagerReport}
-                onApprove={handleApproveReport}
-                onReject={handleRejectReport}
+          <>
+            <section className="grid grid-cols-1 gap-6 md:grid-cols-2 2xl:grid-cols-4">
+              <StatCard
+                title="Всего отчётов"
+                value={`${managerStats.total}`}
+                subtitle="Общее количество отчётов по проекту"
+                accentClass="bg-sky-400"
               />
-            </div>
 
-            <div className="mt-6 rounded-2xl border border-white/5 bg-black/20 p-4 text-sm text-neutral-400">
-              Раздел предназначен для контроля истории отчётов по проекту. Для
-              оперативной проверки менеджер также может открывать отчёт прямо из
-              kanban-доски.
-            </div>
+              <StatCard
+                title="На проверке"
+                value={`${managerStats.submitted}`}
+                subtitle="Отчёты, ожидающие решения руководителя"
+                accentClass="bg-amber-400"
+              />
 
-            <div className="mt-8">
-              {managerReports.length === 0 ? (
-                <div className="rounded-3xl border border-neutral-800 bg-neutral-950/70 p-10 text-center">
-                  <h3 className="text-2xl font-semibold text-white">
-                    Подходящих отчётов не найдено
-                  </h3>
-                  <p className="mt-3 text-neutral-400">
-                    Попробуйте изменить параметры поиска или фильтрации.
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 2xl:grid-cols-2 gap-6">
-                  {managerReports.map((report) => (
-                    <ManagerReportCard
-                      key={report.id}
-                      report={report}
-                      projectName={projectName}
-                      onOpen={handleOpenManagerReport}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
-        </>
-      ) : (
+              <StatCard
+                title="Принято"
+                value={`${managerStats.approved}`}
+                subtitle="Подтверждённые отчёты сотрудников"
+                accentClass="bg-emerald-400"
+              />
+
+              <StatCard
+                title="Отклонено"
+                value={`${managerStats.rejected}`}
+                subtitle="Отчёты, отправленные на доработку"
+                accentClass="bg-red-400"
+              />
+            </section>
 
             <section className="rounded-[32px] border border-neutral-800 bg-neutral-900 p-7">
               <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
                 <div>
-                  <p className="text-neutral-500 text-sm uppercase tracking-[0.2em] mb-3">
+                  <p className="mb-3 text-sm uppercase tracking-[0.2em] text-neutral-500">
+                    ЖУРНАЛ ОТЧЁТОВ
+                  </p>
+                  <h2 className="text-4xl font-semibold text-white">
+                    Отчёты сотрудников
+                  </h2>
+                  <p className="mt-3 text-lg text-neutral-400">
+                    Просматривайте историю всех отчётов по проекту, фильтруйте
+                    данные и открывайте нужный отчёт для проверки.
+                  </p>
+                </div>
+
+                <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-3 xl:w-auto xl:min-w-[820px]">
+                  <div>
+                    <label className="mb-2 block text-sm text-neutral-400">
+                      Поиск
+                    </label>
+                    <input
+                      value={managerSearch}
+                      onChange={(e) => setManagerSearch(e.target.value)}
+                      placeholder="По задаче, сотруднику или комментарию"
+                      className="w-full rounded-2xl border border-neutral-800 bg-neutral-950 px-4 py-3 text-white outline-none focus:border-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm text-neutral-400">
+                      Статус
+                    </label>
+                    <select
+                      value={managerStatusFilter}
+                      onChange={(e) =>
+                        setManagerStatusFilter(
+                          e.target.value as ManagerReportFilter,
+                        )
+                      }
+                      className="w-full rounded-2xl border border-neutral-800 bg-neutral-950 px-4 py-3 text-white outline-none focus:border-white"
+                    >
+                      <option value="ALL">Все</option>
+                      <option value="SUBMITTED">На проверке</option>
+                      <option value="APPROVED">Принято</option>
+                      <option value="REJECTED">Отклонено</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm text-neutral-400">
+                      Сотрудник
+                    </label>
+                    <select
+                      value={managerEmployeeFilter}
+                      onChange={(e) => setManagerEmployeeFilter(e.target.value)}
+                      className="w-full rounded-2xl border border-neutral-800 bg-neutral-950 px-4 py-3 text-white outline-none focus:border-white"
+                    >
+                      <option value="ALL">Все сотрудники</option>
+                      {managerEmployees.map((employee) => (
+                        <option key={employee.id} value={employee.id}>
+                          {employee.fullName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 rounded-2xl border border-white/5 bg-black/20 p-4 text-sm text-neutral-400">
+                Раздел предназначен для контроля истории отчётов по проекту.
+                Для оперативной проверки менеджер также может открывать отчёт
+                прямо из kanban-доски.
+              </div>
+
+              <div className="mt-8">
+                {managerReports.length === 0 ? (
+                  <div className="rounded-3xl border border-neutral-800 bg-neutral-950/70 p-10 text-center">
+                    <h3 className="text-2xl font-semibold text-white">
+                      Подходящих отчётов не найдено
+                    </h3>
+                    <p className="mt-3 text-neutral-400">
+                      Попробуйте изменить параметры поиска или фильтрации.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
+                    {managerReports.map((report) => (
+                      <ManagerReportCard
+                        key={report.id}
+                        report={report}
+                        projectName={projectName}
+                        onOpen={handleOpenManagerReport}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+          </>
+        ) : (
+          <>
+            <section className="grid grid-cols-1 gap-6 md:grid-cols-2 2xl:grid-cols-4">
+              <StatCard
+                title="Всего отчётов"
+                value={`${employeeStats.total}`}
+                subtitle="Все отправленные вами отчёты"
+                accentClass="bg-sky-400"
+              />
+
+              <StatCard
+                title="На проверке"
+                value={`${employeeStats.submitted}`}
+                subtitle="Отчёты, ожидающие решения руководителя"
+                accentClass="bg-amber-400"
+              />
+
+              <StatCard
+                title="Принято"
+                value={`${employeeStats.approved}`}
+                subtitle="Подтверждённые отчёты"
+                accentClass="bg-emerald-400"
+              />
+
+              <StatCard
+                title="Отклонено"
+                value={`${employeeStats.rejected}`}
+                subtitle="Отчёты, отправленные на доработку"
+                accentClass="bg-red-400"
+              />
+            </section>
+
+            <section className="rounded-[32px] border border-neutral-800 bg-neutral-900 p-7">
+              <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+                <div>
+                  <p className="mb-3 text-sm uppercase tracking-[0.2em] text-neutral-500">
                     ИСТОРИЯ ОТЧЁТОВ
                   </p>
                   <h2 className="text-4xl font-semibold text-white">
                     Мои отчёты
                   </h2>
-                  <p className="mt-3 text-neutral-400 text-lg">
+                  <p className="mt-3 text-lg text-neutral-400">
                     Здесь отображаются все ваши отправленные отчёты по задачам
                     проекта.
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full xl:w-auto xl:min-w-[560px]">
+                <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2 xl:w-auto xl:min-w-[560px]">
                   <div>
-                    <label className="block text-sm text-neutral-400 mb-2">
+                    <label className="mb-2 block text-sm text-neutral-400">
                       Поиск
                     </label>
                     <input
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                       placeholder="По названию задачи, проекта или комментарию."
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-4 py-3 outline-none focus:border-white text-white"
+                      className="w-full rounded-2xl border border-neutral-800 bg-neutral-950 px-4 py-3 text-white outline-none focus:border-white"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm text-neutral-400 mb-2">
+                    <label className="mb-2 block text-sm text-neutral-400">
                       Статус
                     </label>
                     <select
@@ -939,7 +973,7 @@ export default function ProjectReportsPage() {
                       onChange={(e) =>
                         setStatusFilter(e.target.value as EmployeeReportFilter)
                       }
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-2xl px-4 py-3 outline-none focus:border-white text-white"
+                      className="w-full rounded-2xl border border-neutral-800 bg-neutral-950 px-4 py-3 text-white outline-none focus:border-white"
                     >
                       <option value="ALL">Все</option>
                       <option value="SUBMITTED">На проверке</option>
@@ -962,12 +996,11 @@ export default function ProjectReportsPage() {
                       Отчётов пока нет
                     </h3>
                     <p className="mt-3 text-neutral-400">
-                      Когда вы отправите отчёт, он появится в
-                      этом разделе.
+                      Когда вы отправите отчёт, он появится в этом разделе.
                     </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 2xl:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
                     {employeeReports.map((report) => (
                       <EmployeeReportCard
                         key={report.id}
@@ -979,8 +1012,18 @@ export default function ProjectReportsPage() {
                 )}
               </div>
             </section>
-      )}
+          </>
+        )}
       </main>
+
+      <TaskReportReviewModal
+        isOpen={!!managerReviewReport && !!managerReviewTask}
+        task={managerReviewTask}
+        report={managerReviewReport}
+        onClose={handleCloseManagerReport}
+        onApprove={handleApproveReport}
+        onReject={handleRejectReport}
+      />
     </div>
   );
 }

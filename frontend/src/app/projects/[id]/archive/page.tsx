@@ -677,9 +677,9 @@ export default function ProjectsArchivePage() {
 
   const canManageArchive = useMemo(() => {
     return (
-      currentSystemRole === 'manager' ||
-      currentSystemRole === 'owner' ||
-      currentSystemRole === 'admin'
+      currentSystemRole === 'MANAGER' ||
+      currentSystemRole === 'OWNER' ||
+      currentSystemRole === 'SUPER_ADMIN'
     );
   }, [currentSystemRole]);
 
