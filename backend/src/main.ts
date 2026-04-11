@@ -9,7 +9,7 @@ async function bootstrap() {
 
   app.enableCors({
     origin: [
-      'https://volchansky07-teaminsight-5696.twc1.net',
+      'https://volchansky07-teaminsight-6db3.twc1.net',
       'http://localhost:3000',
     ],
     credentials: true,

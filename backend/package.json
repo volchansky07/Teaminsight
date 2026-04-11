@@ -27,7 +27,6 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.1.17",
     "@nestjs/schedule": "^6.1.1",
-    "@prisma/client": "^5.22.0",
     "axios": "^1.13.6",
     "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",
@@ -41,6 +40,7 @@
     "rxjs": "^7.8.1"
   },
   "devDependencies": {
+    "@prisma/client": "^5.22.0",
     "@eslint/eslintrc": "^3.2.0",
     "@eslint/js": "^9.18.0",
     "@nestjs/cli": "^11.0.0",
