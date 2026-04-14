@@ -750,7 +750,7 @@ export default function ProjectReportsPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <AppHeader projectId={projectId} />
+      <AppHeader />
 
       <main className="mx-auto max-w-[1600px] space-y-8 px-8 py-10">
         <div>

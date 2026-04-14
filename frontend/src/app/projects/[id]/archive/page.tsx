@@ -926,7 +926,7 @@ export default function ProjectsArchivePage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <AppHeader projectId={projectId} />
+      <AppHeader />
 
       <main className="mx-auto max-w-[1600px] px-8 py-10">
         <div className="mb-8 flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">

@@ -969,7 +969,7 @@ const handleStartTask = async (taskId: string) => {
   if (loading) {
     return (
       <div className="min-h-screen bg-black text-white">
-        <AppHeader projectId={projectId} />
+        <AppHeader />
         <div className="max-w-[1600px] mx-auto px-8 py-10">Загрузка...</div>
       </div>
     );
@@ -977,9 +977,7 @@ const handleStartTask = async (taskId: string) => {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <AppHeader projectId={projectId} 
-      projectRole={currentProjectRole}
-      />
+      <AppHeader />
 
       <main className="max-w-[1600px] mx-auto px-8 py-10 space-y-8">
         <div className="flex items-end justify-between gap-4">

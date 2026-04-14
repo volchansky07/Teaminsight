@@ -43,7 +43,7 @@ export default function ProjectContributionsPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <AppHeader projectId={projectId} />
+      <AppHeader />
 
       <main className="max-w-[1600px] mx-auto px-8 py-10 space-y-8">
         <div>
