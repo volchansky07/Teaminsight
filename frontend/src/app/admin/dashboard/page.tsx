@@ -5,7 +5,7 @@ import api from '@/services/api';
 import AdminHeader from '@/components/admin/AdminHeader';
 import AdminStatCard from '@/components/admin/AdminStatCard';
 import AdminSectionCard from '@/components/admin/AdminSectionCard';
-import AdminGuard  from '@/components/admin/AdminGuard';
+import AdminGuard from '@/components/admin/AdminGuard';
 import InlineNotice from '@/components/InlineNotice';
 
 interface DashboardSummary {
@@ -47,94 +47,100 @@ export default function AdminDashboardPage() {
     load();
   }, []);
 
-    return (
+  return (
     <AdminGuard>
-        <div className="min-h-screen bg-black text-white">
-        <AdminHeader />
+      <main className="min-h-screen bg-slate-950 text-white">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-4 md:px-6 md:py-6 lg:px-8">
+          <AdminHeader />
 
-        <main className="mx-auto max-w-[1600px] px-8 py-10">
-            <div className="mb-8">
-            <p className="text-[13px] uppercase tracking-[0.22em] text-white/40">
+          <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4 md:p-6">
+            <div className="flex flex-col gap-3">
+              <span className="inline-flex w-fit rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-cyan-300">
                 Администрирование
-            </p>
-            <h1 className="mt-3 text-6xl font-semibold leading-[0.95] text-white">
-                Системный обзор
-            </h1>
-            <p className="mt-4 max-w-[900px] text-lg leading-relaxed text-white/55">
-                Централизованное управление организациями, пользователями и общей
-                структурой платформы.
-            </p>
+              </span>
+
+              <div>
+                <h1 className="text-2xl font-semibold md:text-3xl">
+                  Системный обзор
+                </h1>
+                <p className="mt-2 max-w-3xl text-sm text-slate-300 md:text-base">
+                  Централизованное управление организациями, пользователями и
+                  общей структурой платформы.
+                </p>
+              </div>
             </div>
+          </section>
 
-            {notice ? <InlineNotice type={notice.type} message={notice.message} /> : null}
+          {notice ? <InlineNotice type={notice.type} message={notice.message} /> : null}
 
-            {loading ? (
-            <div className="rounded-[30px] border border-white/10 bg-[#141414] p-10 text-lg text-white/70">
-                Загрузка данных...
+          {loading ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 text-sm text-slate-300">
+              Загрузка данных...
             </div>
-            ) : data ? (
-            <div className="space-y-8">
-                <section className="grid grid-cols-1 gap-6 xl:grid-cols-4">
+          ) : data ? (
+            <>
+              <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 <AdminStatCard
-                    label="Организации"
-                    value={data.organizationsTotal}
-                    description="Общее количество организаций в системе."
+                  label="Всего пользователей"
+                  value={data.usersTotal}
+                  description="Общее количество зарегистрированных пользователей."
                 />
                 <AdminStatCard
-                    label="Активные пользователи"
-                    value={data.activeUsers}
-                    description="Количество пользователей с активным доступом."
-                    accentClass="text-emerald-300"
+                  label="Активные организации"
+                  value={data.activeOrganizations}
+                  description="Организации, которые сейчас используют платформу."
                 />
                 <AdminStatCard
-                    label="Деактивированные"
-                    value={data.inactiveUsers}
-                    description="Пользователи, временно отключённые от системы."
-                    accentClass="text-amber-300"
+                  label="Супер-администраторы"
+                  value={data.superAdmins}
+                  description="Пользователи с максимальным уровнем системного доступа."
                 />
-                <AdminStatCard
-                    label="Активные проекты"
-                    value={data.activeProjects}
-                    description="Количество проектов, доступных для работы."
-                    accentClass="text-sky-300"
-                />
-                </section>
+              </section>
 
+              <section>
                 <AdminSectionCard
-                title="Сводка по системе"
-                subtitle="Ключевые показатели для контроля административной структуры платформы."
+                  title="Краткая сводка"
+                  subtitle="Ключевые показатели платформы в компактном формате."
                 >
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                    <div className="rounded-2xl border border-white/8 bg-black/20 p-5">
-                    <div className="text-sm text-white/45">Всего пользователей</div>
-                    <div className="mt-3 text-3xl font-semibold text-white">
-                        {data.usersTotal}
-                    </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-white/8 bg-black/20 p-5">
-                    <div className="text-sm text-white/45">Активные организации</div>
-                    <div className="mt-3 text-3xl font-semibold text-emerald-300">
-                        {data.activeOrganizations}
-                    </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+                      <div className="text-sm text-slate-400">Всего организаций</div>
+                      <div className="mt-2 text-2xl font-semibold">
+                        {data.organizationsTotal}
+                      </div>
                     </div>
 
-                    <div className="rounded-2xl border border-white/8 bg-black/20 p-5">
-                    <div className="text-sm text-white/45">Супер-администраторы</div>
-                    <div className="mt-3 text-3xl font-semibold text-sky-300">
-                        {data.superAdmins}
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+                      <div className="text-sm text-slate-400">Активные пользователи</div>
+                      <div className="mt-2 text-2xl font-semibold">
+                        {data.activeUsers}
+                      </div>
                     </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+                      <div className="text-sm text-slate-400">Неактивные пользователи</div>
+                      <div className="mt-2 text-2xl font-semibold">
+                        {data.inactiveUsers}
+                      </div>
                     </div>
-                </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+                      <div className="text-sm text-slate-400">Активные проекты</div>
+                      <div className="mt-2 text-2xl font-semibold">
+                        {data.activeProjects}
+                      </div>
+                    </div>
+                  </div>
                 </AdminSectionCard>
+              </section>
+            </>
+          ) : (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 text-sm text-slate-300">
+              Данные пока недоступны.
             </div>
-            ) : (
-            <div className="rounded-[30px] border border-white/10 bg-[#141414] p-10 text-lg text-white/70">
-                Данные пока недоступны.
-            </div>
-            )}
-        </main>
+          )}
         </div>
+      </main>
     </AdminGuard>
-    );
+  );
 }
