@@ -967,10 +967,12 @@ const handleStartTask = async (taskId: string) => {
   }, [tasks, currentUserId]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-black text-white">
-        <AppHeader />
-        <div className="max-w-[1600px] mx-auto px-8 py-10">Загрузка...</div>
+  return (
+    <div className="min-h-screen bg-black text-white">
+      <AppHeader />
+      <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-6 md:py-8 xl:px-8 xl:py-10">
+        Загрузка...
+       </div>
       </div>
     );
   }
@@ -979,18 +981,18 @@ const handleStartTask = async (taskId: string) => {
     <div className="min-h-screen bg-black text-white">
       <AppHeader />
 
-      <main className="max-w-[1600px] mx-auto px-8 py-10 space-y-8">
-        <div className="flex items-end justify-between gap-4">
-          <div>
-            <p className="text-neutral-500 text-sm uppercase tracking-[0.2em] mb-3">
+      <main className="mx-auto max-w-[1600px] space-y-8 px-4 py-6 md:px-6 md:py-8 xl:px-8 xl:py-10">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div className="min-w-0">
+            <p className="mb-3 text-sm uppercase tracking-[0.2em] text-neutral-500">
               {isMemberView ? 'МОИ ПРОЕКТЫ' : 'Рабочее пространство проекта'}
             </p>
 
-            <h1 className="text-5xl font-bold tracking-tight">
+            <h1 className="break-words text-3xl font-bold tracking-tight md:text-5xl">
               {project?.name ?? 'Панель проекта'}
             </h1>
 
-            <p className="text-neutral-400 mt-3 text-lg max-w-3xl">
+            <p className="mt-3 max-w-3xl text-base text-neutral-400 md:text-lg">
               {project?.description?.trim()
                 ? project.description
                 : 'Назначайте задачи, отслеживайте статусы и общий прогресс выполнения проекта.'}
@@ -998,14 +1000,14 @@ const handleStartTask = async (taskId: string) => {
 
             {isMemberView && (
               <div className="mt-4 flex flex-wrap gap-3 text-sm">
-                <span className="px-3 py-1.5 rounded-full bg-neutral-900 border border-neutral-800 text-neutral-300">
+                <span className="rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-neutral-300">
                   Руководитель проекта:{' '}
                   <span className="text-white">
                     {projectManager?.fullName ?? 'Не указан'}
                   </span>
                 </span>
 
-                <span className="px-3 py-1.5 rounded-full bg-neutral-900 border border-neutral-800 text-neutral-300">
+                <span className="rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-neutral-300">
                   Моя роль:{' '}
                   <span className="text-white">
                     {translateRoleName(currentProjectRole ?? '')}
@@ -1016,16 +1018,18 @@ const handleStartTask = async (taskId: string) => {
           </div>
 
           {isManagerView && (
-            <button
-              onClick={() => {
-                if (!showForm) resetForm();
-                setShowForm((prev) => !prev);
-                setNotice(null);
-              }}
-              className="bg-white text-black px-5 py-3 rounded-2xl font-medium hover:bg-neutral-200 transition"
-            >
-              {showForm ? 'Закрыть' : '+ Добавить задачу'}
-            </button>
+            <div className="w-full xl:w-auto">
+              <button
+                onClick={() => {
+                  if (!showForm) resetForm();
+                  setShowForm((prev) => !prev);
+                  setNotice(null);
+                }}
+                className="w-full rounded-2xl bg-white px-5 py-3 font-medium text-black transition hover:bg-neutral-200 xl:w-auto"
+              >
+                {showForm ? 'Закрыть форму' : 'Создать задачу'}
+              </button>
+            </div>
           )}
         </div>
 
